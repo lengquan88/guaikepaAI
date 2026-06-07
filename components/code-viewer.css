@@ -1,0 +1,41 @@
+/* Sandpack layout fixes */
+.sp-wrapper {
+  height: 100% !important;
+}
+
+.sp-layout {
+  height: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+.sp-stack {
+  height: 100% !important;
+}
+
+.sp-code-editor {
+  height: 100% !important;
+}
+
+.sp-cm {
+  height: 100% !important;
+}
+
+.sp-preview {
+  height: 100% !important;
+  background-color: #1e1e2e !important;
+}
+
+.sp-preview-container {
+  height: 100% !important;
+  background-color: #1e1e2e !important;
+}
+
+.sp-preview-iframe {
+  height: 100% !important;
+}
+
+/* Preview actions area */
+.sp-preview-actions {
+  background-color: #282a36 !important;
+}
