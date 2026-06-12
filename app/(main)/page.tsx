@@ -1,6 +1,12 @@
 "use client";
 
 import CodeViewer from "@/components/code-viewer";
+import EngramPanel from "@/components/EngramPanel";
+import {
+  addEngram,
+  buildEngramContext,
+  extractAndParseEngram,
+} from "@/lib/engram";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useScrollTo } from "@/hooks/use-scroll-to";
 import { CheckIcon } from "@heroicons/react/16/solid";
@@ -45,8 +51,24 @@ LIBRARIES AVAILABLE:
 
 NO OTHER LIBRARIES (zod, hookform, etc.) ARE AVAILABLE.
 
-Please ONLY return code, NO backticks or language names.
-`;
+=== ENGRAM (RELATION GRAPH) OUTPUT - MANDATORY ===
+
+IMPORTANT: On the VERY FIRST LINE of your response, output a single-line comment block describing the structural "relation graph" of the component you are about to generate. Use exactly this format, all on one line:
+
+/* @engram {"self": "ComponentName", "intent": "one-line summary of what the component does", "印": ["hookOrLibName1", "hookOrLibName2"], "生": ["outputOrRenderedElement1", "outputOrRenderedElement2"], "比": ["similarStructure1", "similarStructure2"], "克": ["validationOrConstraint1", "limitOrControl2"], "财": ["consumedData1", "externalCall1"]} */
+
+Meaning of each relation key (these are semantic/structural tags, NOT literal text):
+- 印 (support): React hooks, libraries, or state sources that support/feed the component. e.g. ["useState", "useEffect", "recharts"]
+- 生 (output): Elements rendered or produced by this component. e.g. ["TodoList render", "animatedCheckbox", "toast message"]
+- 比 (peer): Structural peers or sibling-level components. e.g. ["Card", "Button", "Checkbox"]
+- 克 (control): Constraints, validations, limits, or conditional guards. e.g. ["maxLength validation", "empty state guard", "form submit disabled"]
+- 财 (consume): Data or external resources this component transforms or consumes. e.g. ["todo items array", "filter state", "user input"]
+
+Keep every token list short — 1-3 tokens per relation, focused on structural essence. If a relation has nothing meaningful, use an empty array [].
+
+Then output the rest of the component code on the following lines, exactly as before. The engram comment is structural metadata ONLY; it must not contain code and must not break compilation.
+
+Please ONLY return code (with the engram comment on line 1), NO backticks or language names.`;
 
 function removeCodeFormatting(code: string): string {
   return code
@@ -174,8 +196,14 @@ export default function Home() {
     setStatus("creating");
     setGeneratedCode("");
 
+    // Engram 注入：用共振的历史关系图谱增强 system prompt
+    const engramContext = buildEngramContext(prompt);
+    const augmentedSystemPrompt = engramContext
+      ? `${SYSTEM_PROMPT}\n\n${engramContext}`
+      : SYSTEM_PROMPT;
+
     const fullMessages = [
-      { role: "system" as const, content: SYSTEM_PROMPT },
+      { role: "system" as const, content: augmentedSystemPrompt },
       { role: "user" as const, content: combinedUserMessage },
     ];
 
@@ -285,16 +313,37 @@ export default function Home() {
       }
     }
 
-    // Final processing: fix React imports
-    const finalCode = fixReactImports(removeCodeFormatting(receivedData));
-    setGeneratedCode(finalCode);
+    // Final processing: fix React imports, then extract engram
+    const rawFinal = fixReactImports(removeCodeFormatting(receivedData));
+
+    // Engram 解析：从代码注释中提取关系图谱，剥离注释后给用户
+    const { engram, cleanCode } = extractAndParseEngram(
+      rawFinal,
+      `Generated-${Date.now()}`,
+    );
+
+    // 存储 engram —— 下次生成时这就成为"长期记忆"
+    addEngram(engram);
+
+    setGeneratedCode(cleanCode);
 
     // Update conversation history
     setConversationHistory(newHistory);
     setMessages([...messages, { role: "user", content: prompt }]);
     setPrompt("");
     setStatus("created");
-    toast.success("Code generated successfully!");
+
+    // 根据是否找到共振 engram 给出轻微不同的反馈
+    const relCount = Object.values(engram.relations).filter(
+      (arr) => Array.isArray(arr) && arr.length > 0,
+    ).length;
+    if (relCount >= 3) {
+      toast.success(
+        `Code generated · ${engram.self} · ${relCount} relation-types tagged`,
+      );
+    } else {
+      toast.success("Code generated successfully!");
+    }
   }
 
   // Clear conversation context
@@ -356,6 +405,9 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* Engram relation panel — 长期记忆关系图 */}
+        <EngramPanel prompt={prompt} />
 
         {/* Input area */}
         <div className="p-4 border-t border-neutral-800/40">
