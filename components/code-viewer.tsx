@@ -8,9 +8,10 @@ import {
   SandpackProvider,
 } from "@codesandbox/sandpack-react";
 import { dracula as draculaTheme } from "@codesandbox/sandpack-themes";
-import { ArrowDownTrayIcon, CloudArrowUpIcon } from "@heroicons/react/24/outline";
+import { ArrowDownTrayIcon, CheckIcon, CloudArrowUpIcon, ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 import dedent from "dedent";
 import JSZip from "jszip";
+import { useState } from "react";
 import "./code-viewer.css";
 
 // Download toolbar component
@@ -21,7 +22,19 @@ function DownloadToolbar({
   code: string;
   isGenerating: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
   const canDownload = !isGenerating && code.trim().length > 0;
+
+  const handleCopy = async () => {
+    if (!canDownload) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Silently ignore clipboard errors (e.g. in unsupported contexts)
+    }
+  };
 
   const handleDownload = async () => {
     if (!canDownload) return;
@@ -254,6 +267,23 @@ function DownloadToolbar({
     <div className="flex items-center justify-between px-4 py-2 bg-[#0d0d0d] border-b border-gray-800/50">
       <span className="text-sm text-gray-500">Preview</span>
       <div className="flex items-center gap-3">
+        <button
+          onClick={handleCopy}
+          disabled={!canDownload}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${
+            canDownload
+              ? "bg-transparent text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-500 cursor-pointer"
+              : "bg-transparent text-gray-600 border border-gray-800 cursor-not-allowed"
+          }`}
+          title={copied ? "Copied!" : "Copy code to clipboard"}
+        >
+          {copied ? (
+            <CheckIcon className="w-3.5 h-3.5 text-green-400" />
+          ) : (
+            <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+          )}
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </button>
         <button
           onClick={handleDownload}
           disabled={!canDownload}

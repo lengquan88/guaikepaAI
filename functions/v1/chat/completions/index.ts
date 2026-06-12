@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+// Minimal env type for Cloudflare Pages Functions
+interface PagesEnv {
+  ALLOWED_ORIGINS?: string;
+  REQUIRED_API_KEY?: string;
+  BASE_URL?: string;
+  API_KEY?: string;
+  MODEL?: string;
+  NODE_ENV?: string;
+  [key: string]: unknown;
+}
+
 declare global {
   const AI: {
     chatCompletions: (...args: unknown[]) => Promise<ReadableStream<Uint8Array> | Record<string, unknown>>;
@@ -18,30 +29,24 @@ const messageSchema = z
     messages: z.array(messageItemSchema),
     model: z.string().optional(),
     stream: z.boolean().optional(),
-    tools: z.any().optional(),
-    tool_choice: z.any().optional(),
-    functions: z.any().optional(),
-    function_call: z.any().optional(),
     temperature: z.number().optional(),
     top_p: z.number().optional(),
     max_tokens: z.number().optional(),
     presence_penalty: z.number().optional(),
     frequency_penalty: z.number().optional(),
     stop: z.union([z.string(), z.array(z.string())]).optional(),
-    response_format: z.any().optional(),
     seed: z.number().optional(),
     user: z.string().optional(),
     n: z.number().int().optional(),
     logit_bias: z.record(z.string(), z.number()).optional(),
     parallel_tool_calls: z.boolean().optional(),
-    stream_options: z.any().optional(),
   })
   .passthrough();
 
 const ALLOWED_MODELS = ['@tx/deepseek-ai/deepseek-v4'] as const;
 const MAX_PROMPT_LENGTH = 12000;
 
-function getAllowedOrigin(env: any, origin: string | null): string {
+function getAllowedOrigin(env: PagesEnv | undefined, origin: string | null): string {
   if (!origin) return '';
   const configured = env?.ALLOWED_ORIGINS;
   if (configured) {
@@ -55,7 +60,7 @@ function getAllowedOrigin(env: any, origin: string | null): string {
   return '';
 }
 
-function corsHeaders(env: any, origin: string | null): Record<string, string> {
+function corsHeaders(env: PagesEnv | undefined, origin: string | null): Record<string, string> {
   const allowed = getAllowedOrigin(env, origin);
   return {
     'Access-Control-Allow-Origin': allowed,
@@ -70,10 +75,10 @@ function corsHeaders(env: any, origin: string | null): Record<string, string> {
  * Create standardized response with restrictive CORS headers
  */
 function createResponse(
-  body: any,
+  body: unknown,
   status = 200,
   extraHeaders: Record<string, string> = {},
-  env: any = undefined,
+  env: PagesEnv | undefined = undefined,
   origin: string | null = null,
 ): Response {
   const headers: Record<string, string> = {
@@ -88,11 +93,11 @@ function createResponse(
 /**
  * Handle OPTIONS request for CORS preflight
  */
-function handleOptionsRequest(env: any, origin: string | null): Response {
+function handleOptionsRequest(env: PagesEnv, origin: string | null): Response {
   return new Response(null, { status: 204, headers: corsHeaders(env, origin) });
 }
 
-function verifyApiKey(request: Request, env: any): { ok: boolean; error?: string } {
+function verifyApiKey(request: Request, env: PagesEnv): { ok: boolean; error?: string } {
   const requiredKey = env?.REQUIRED_API_KEY;
   if (!requiredKey) {
     return { ok: true }; // Dev fallback: no key configured → skip check
@@ -106,7 +111,7 @@ function verifyApiKey(request: Request, env: any): { ok: boolean; error?: string
   return { ok: true };
 }
 
-export async function onRequest({ request, env }: any) {
+export async function onRequest({ request, env }: { request: Request; env: PagesEnv }) {
   const origin = request.headers.get('origin');
 
   if (request.method === 'OPTIONS') {
@@ -126,7 +131,7 @@ export async function onRequest({ request, env }: any) {
     if (raw.byteLength > 128 * 1024) {
       return createResponse({ error: 'Request body too large' }, 413, {}, env, origin);
     }
-    let json: any;
+    let json: unknown;
     try {
       json = JSON.parse(new TextDecoder('utf-8').decode(raw));
     } catch {
@@ -141,20 +146,20 @@ export async function onRequest({ request, env }: any) {
 
     const { messages, model, stream, ...extraParams } = parseResult.data;
 
-    const userMessages = messages.filter((message: any) => message.role === 'user');
+    const userMessages = messages.filter((message) => message.role === 'user');
     if (!userMessages.length) {
       return createResponse({ error: 'No user message provided' }, 400, {}, env, origin);
     }
 
     if (
-      userMessages.some((message: any) => typeof message.content !== 'string')
+      userMessages.some((message) => typeof message.content !== 'string')
     ) {
       return createResponse({ error: 'User message content must be a string' }, 400, {}, env, origin);
     }
 
     if (
       userMessages.some(
-        (message: any) => (message.content as string).length > MAX_PROMPT_LENGTH,
+        (message) => (message.content as string).length > MAX_PROMPT_LENGTH,
       )
     ) {
       return createResponse(
@@ -283,22 +288,24 @@ export async function onRequest({ request, env }: any) {
           ...corsHeaders(env, origin),
         },
       });
-    } catch (error: any) {
+    } catch (error) {
       const isDev = env?.NODE_ENV === 'development';
+      const errMsg = error instanceof Error ? error.message : 'Upstream request failed';
       return createResponse(
-        { error: isDev ? error.message : 'Upstream request failed' },
+        { error: isDev ? errMsg : 'Upstream request failed' },
         502,
         {},
         env,
         origin,
       );
     }
-  } catch (error: any) {
+  } catch (error) {
     const isDev = env?.NODE_ENV === 'development';
+    const errMsg = error instanceof Error ? error.message : 'Request processing failed';
     return createResponse(
       {
-        error: isDev ? error.message : 'Request processing failed',
-        ...(isDev && error?.message ? { details: error.message } : {}),
+        error: isDev ? errMsg : 'Request processing failed',
+        ...(isDev ? { details: errMsg } : {}),
       },
       500,
       {},

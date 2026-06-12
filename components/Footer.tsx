@@ -1,10 +1,19 @@
 export default function Footer() {
   return (
-    <footer className="flex flex-col items-center justify-between w-full h-16 px-3 pt-4 mt-5 mb-3 space-y-3 text-center sm:mb-0 sm:h-20 sm:flex-row sm:pt-2 bg-black">
-      <div>
-        <div className="font-medium text-neutral-400"></div>
+    <footer className="border-t border-neutral-800/60 bg-neutral-950 py-3 text-center text-xs text-neutral-500">
+      <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <p>
+          &copy; {new Date().getFullYear()} DeepSeek V4 Playground. Powered by
+          <a
+            href="https://pages.edgeone.ai/" target="_blank" rel="noopener noreferrer" className="text-neutral-400 hover:text-white transition-colors"> EdgeOne Pages
+          </a>.
+        </p>
+        <div className="flex items-center gap-4">
+          <a href="https://deepseek.ai/" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">DeepSeek</a>
+          <span className="text-neutral-700">|</span>
+          <a href="https://github.com/TencentEdgeOne/" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-white">GitHub</a>
+        </div>
       </div>
-      <div className="flex pb-4 space-x-4 sm:pb-0"></div>
     </footer>
   );
 }

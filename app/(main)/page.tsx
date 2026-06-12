@@ -3,10 +3,19 @@
 import CodeViewer from "@/components/code-viewer";
 import { useScrollTo } from "@/hooks/use-scroll-to";
 import { CheckIcon } from "@heroicons/react/16/solid";
-import { ChevronDownIcon } from "@heroicons/react/20/solid";
+import { ChevronDownIcon, SparklesIcon } from "@heroicons/react/20/solid";
 import * as Select from "@radix-ui/react-select";
 import { FormEvent, useEffect, useState } from "react";
+import { toast, Toaster } from "sonner";
 import LoadingDots from "../../components/loading-dots";
+
+const EXAMPLE_PROMPTS = [
+  { label: "Landing page", value: "Build a modern product landing page with a hero section, feature list, and call-to-action button. Use Tailwind for styling." },
+  { label: "To-do app", value: "Create a beautiful to-do list app with add, delete, and mark-complete functionality. Include task filtering and clean animations." },
+  { label: "Data dashboard", value: "Create an analytics dashboard showing charts and key metrics. Use recharts for charting and Tailwind for layout." },
+  { label: "Pricing page", value: "Build a pricing comparison page with three tiers, feature list, FAQ section, and prominent call-to-action buttons." },
+  { label: "Contact form", value: "Create a contact form with name, email, message fields, validation, and a success message after submission." },
+];
 
 // Model mapping: display name -> API model name
 const MODEL_MAP: Record<string, string> = {
@@ -113,7 +122,6 @@ export default function Home() {
   let [messages, setMessages] = useState<{ role: string; content: string }[]>(
     [],
   );
-  let [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Accumulated user input history for multi-turn conversation
   let [conversationHistory, setConversationHistory] = useState<string[]>([]);
   // Resolve SSR hydration flickering issue
@@ -131,9 +139,7 @@ export default function Home() {
     if (!prompt.trim()) return;
 
     if (prompt.length > MAX_PROMPT_LENGTH) {
-      setErrorMessage(
-        `Prompt too long (${prompt.length} > ${MAX_PROMPT_LENGTH} characters).`,
-      );
+      toast.error(`Prompt too long (${prompt.length} > ${MAX_PROMPT_LENGTH} characters).`);
       setStatus("initial");
       return;
     }
@@ -143,8 +149,8 @@ export default function Home() {
     const combinedUserMessage = newHistory.join("");
 
     if (combinedUserMessage.length > MAX_COMBINED_LENGTH) {
-      setErrorMessage(
-        `Accumulated conversation too long (${combinedUserMessage.length} > ${MAX_COMBINED_LENGTH} characters). Start a new conversation to continue.`,
+      toast.error(
+        `Accumulated conversation too long (${combinedUserMessage.length} > ${MAX_COMBINED_LENGTH} characters). Start a new conversation to continue.`
       );
       setStatus("initial");
       return;
@@ -156,7 +162,6 @@ export default function Home() {
 
     setStatus("creating");
     setGeneratedCode("");
-    setErrorMessage(null);
 
     const fullMessages = [
       { role: "system" as const, content: SYSTEM_PROMPT },
@@ -189,18 +194,18 @@ export default function Home() {
       try {
         const errorData = await res.json();
         const errorMsg = errorData.error || errorData.message || res.statusText;
-        setErrorMessage(errorMsg);
+        toast.error(errorMsg);
         setStatus("initial");
         return;
       } catch {
-        setErrorMessage(res.statusText);
+        toast.error(res.statusText);
         setStatus("initial");
         return;
       }
     }
 
     if (!res.body) {
-      setErrorMessage("No response body");
+      toast.error("No response body");
       setStatus("initial");
       return;
     }
@@ -211,11 +216,11 @@ export default function Home() {
       try {
         const errorData = await res.json();
         const errorMsg = errorData.error || errorData.message || "Unknown error";
-        setErrorMessage(errorMsg);
+        toast.error(errorMsg);
         setStatus("initial");
         return;
       } catch {
-        setErrorMessage("Failed to parse error response");
+        toast.error("Failed to parse error response");
         setStatus("initial");
         return;
       }
@@ -278,6 +283,7 @@ export default function Home() {
     setMessages([...messages, { role: "user", content: prompt }]);
     setPrompt("");
     setStatus("created");
+    toast.success("Code generated successfully!");
   }
 
   // Clear conversation context
@@ -286,8 +292,8 @@ export default function Home() {
     setMessages([]);
     setGeneratedCode("");
     setStatus("initial");
-    setErrorMessage(null);
     setPrompt(DEFAULT_PROMPT);
+    toast.success("Started a new conversation");
   }
 
   useEffect(() => {
@@ -299,12 +305,26 @@ export default function Home() {
   }, [loading, generatedCode]);
 
   return (
+    <>
     <main className="flex flex-1 overflow-hidden">
       {/* Left chat area */}
       <div className="relative flex flex-col w-1/3 min-w-[400px] bg-neutral-950 shadow-[inset_-8px_0_16px_-8px_rgba(0,0,0,0.5)]">
         <div className="flex-1 p-6 overflow-y-auto">
           {/* Chat history */}
           <div className="space-y-4">
+            {messages.length === 0 && !loading && (
+              <div className="flex flex-col items-center justify-center text-center py-10">
+                <div className="w-14 h-14 mb-4 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
+                  <SparklesIcon className="w-7 h-7 text-indigo-400" />
+                </div>
+                <h3 className="text-base font-medium text-neutral-200 mb-1">
+                  Describe what you want to build
+                </h3>
+                <p className="text-sm text-neutral-500 max-w-sm">
+                  Enter a prompt below and DeepSeek V4 will generate a complete, runnable React component.
+                </p>
+              </div>
+            )}
             {messages.map((msg, idx) => (
               <div
                 key={idx}
@@ -323,16 +343,25 @@ export default function Home() {
                 <span>Generating code...</span>
               </div>
             )}
-            {errorMessage && (
-              <div className="p-4 rounded-lg bg-red-900/30 border border-red-700/50">
-                <p className="text-sm text-red-300">{errorMessage}</p>
-              </div>
-            )}
           </div>
         </div>
 
         {/* Input area */}
         <div className="p-4 border-t border-neutral-800/40">
+          {messages.length === 0 && !loading && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {EXAMPLE_PROMPTS.map((example) => (
+                <button
+                  key={example.label}
+                  type="button"
+                  onClick={() => setPrompt(example.value)}
+                  className="px-2.5 py-1.5 text-[11px] text-neutral-400 bg-neutral-900/60 border border-neutral-800 rounded-md hover:text-white hover:border-neutral-600 transition-colors"
+                >
+                  {example.label}
+                </button>
+              ))}
+            </div>
+          )}
           <form onSubmit={createApp}>
             <div className="relative">
               <textarea
@@ -418,10 +447,13 @@ export default function Home() {
       <div className="flex-1 overflow-hidden bg-black" ref={ref}>
         {status === "initial" ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="mb-4 text-6xl text-neutral-500">{"</>"}</div>
-              <p className="text-lg text-neutral-400">
-                Enter a prompt to generate code
+            <div className="text-center max-w-md px-8">
+              <div className="mb-4 text-6xl text-neutral-700">{"</>"}</div>
+              <h3 className="text-lg font-medium text-neutral-300 mb-2">
+                Ready to generate code
+              </h3>
+              <p className="text-sm text-neutral-500">
+                Your generated code will appear here with a live preview once you enter a prompt on the left.
               </p>
             </div>
           </div>
@@ -432,5 +464,17 @@ export default function Home() {
         )}
       </div>
     </main>
+    <Toaster
+      theme="dark"
+      position="top-right"
+      toastOptions={{
+        style: {
+          background: "#0a0a0a",
+          border: "1px solid #262626",
+          color: "#e5e5e5",
+        },
+      }}
+    />
+    </>
   );
 }
