@@ -138,6 +138,18 @@ export default function Home() {
       return;
     }
 
+    const MAX_COMBINED_LENGTH = 12000;
+    const newHistory = [...conversationHistory, prompt];
+    const combinedUserMessage = newHistory.join("");
+
+    if (combinedUserMessage.length > MAX_COMBINED_LENGTH) {
+      setErrorMessage(
+        `Accumulated conversation too long (${combinedUserMessage.length} > ${MAX_COMBINED_LENGTH} characters). Start a new conversation to continue.`,
+      );
+      setStatus("initial");
+      return;
+    }
+
     if (status !== "initial") {
       scrollTo({ delay: 0.5 });
     }
@@ -145,10 +157,6 @@ export default function Home() {
     setStatus("creating");
     setGeneratedCode("");
     setErrorMessage(null);
-
-    // Add current input to history, generate accumulated user message
-    const newHistory = [...conversationHistory, prompt];
-    const combinedUserMessage = newHistory.join("");
 
     const fullMessages = [
       { role: "system" as const, content: SYSTEM_PROMPT },

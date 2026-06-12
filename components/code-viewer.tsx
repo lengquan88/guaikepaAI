@@ -6,23 +6,12 @@ import {
   SandpackLayout,
   SandpackPreview,
   SandpackProvider,
-  useSandpack,
 } from "@codesandbox/sandpack-react";
 import { dracula as draculaTheme } from "@codesandbox/sandpack-themes";
 import { ArrowDownTrayIcon, CloudArrowUpIcon } from "@heroicons/react/24/outline";
 import dedent from "dedent";
 import JSZip from "jszip";
-import { useEffect, useRef } from "react";
 import "./code-viewer.css";
-
-// Require explicit user click: never auto-run generated code (security hardening).
-// Previously this component called runSandpack() on generation completion; disabled
-// to prevent automatic execution of LLM-produced code, which could contain
-// credential-stealing forms or cross-origin requests.
-function AutoRunner({ isGenerating }: { isGenerating: boolean }) {
-  void isGenerating;
-  return null;
-}
 
 // Download toolbar component
 function DownloadToolbar({
@@ -249,13 +238,16 @@ function DownloadToolbar({
     // Generate ZIP file and download
     const content = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(content);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "generated-app.zip";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "generated-app.zip";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   };
 
   return (
@@ -325,7 +317,6 @@ export default function CodeViewer({
         }}
         {...sharedProps}
       >
-        <AutoRunner isGenerating={isGenerating} />
         {showEditor ? (
           <SandpackLayout style={{ flex: 1, height: "100%" }}>
             <SandpackCodeEditor

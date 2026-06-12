@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+declare global {
+  const AI: {
+    chatCompletions: (...args: unknown[]) => Promise<ReadableStream<Uint8Array> | Record<string, unknown>>;
+  };
+}
+
 const messageItemSchema = z
   .object({
     role: z.enum(['user', 'assistant', 'system', 'tool', 'function']),
@@ -52,7 +58,7 @@ function getAllowedOrigin(env: any, origin: string | null): string {
 function corsHeaders(env: any, origin: string | null): Record<string, string> {
   const allowed = getAllowedOrigin(env, origin);
   return {
-    'Access-Control-Allow-Origin': allowed || 'null',
+    'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
@@ -83,7 +89,7 @@ function createResponse(
  * Handle OPTIONS request for CORS preflight
  */
 function handleOptionsRequest(env: any, origin: string | null): Response {
-  return new Response(null, { headers: corsHeaders(env, origin) });
+  return new Response(null, { status: 204, headers: corsHeaders(env, origin) });
 }
 
 function verifyApiKey(request: Request, env: any): { ok: boolean; error?: string } {
@@ -167,22 +173,41 @@ export async function onRequest({ request, env }: any) {
       const MODEL = env.MODEL;
 
       if (BASE_URL && API_KEY && MODEL) {
-        // SSRF defense: reject non-https / loopback targets
+        // SSRF defense: reject non-https / loopback / private-network targets
         let parsedUrl: URL;
         try {
-          parsedUrl = new URL(`${BASE_URL}/chat/completions`);
+          parsedUrl = new URL('chat/completions', BASE_URL);
         } catch {
           return createResponse({ error: 'Invalid upstream configuration' }, 500, {}, env, origin);
         }
         const host = parsedUrl.hostname.toLowerCase();
-        const isLoopback =
+        const isPrivateHost =
           host === 'localhost' ||
-          host === '127.0.0.1' ||
-          host.startsWith('10.') ||
-          host.startsWith('192.168.') ||
+          host.endsWith('.localhost') ||
           host.endsWith('.internal') ||
-          host.endsWith('.local');
-        if (parsedUrl.protocol !== 'https:' || isLoopback) {
+          host.endsWith('.local') ||
+          host.endsWith('.arpa');
+        // IPv4 check: 127.x.x.x, 10.x.x.x, 192.168.x.x, 172.16-31.x.x
+        const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+        const ipv4Match = host.match(ipv4Regex);
+        const isPrivateIpv4 = ipv4Match
+          ? (() => {
+              const [a, b, c] = ipv4Match.slice(1).map(Number);
+              // Reject octal-encoded segments like 0177
+              if (ipv4Match.slice(1).some((seg) => seg.length > 1 && seg.startsWith('0'))) return true;
+              if (a === 127) return true;
+              if (a === 10) return true;
+              if (a === 192 && b === 168) return true;
+              if (a === 172 && b >= 16 && b <= 31) return true;
+              // Link-local
+              if (a === 169 && b === 254) return true;
+              // All zeros / broadcast-ish
+              if (a === 0) return true;
+              return false;
+            })()
+          : false;
+        const isIpv6Loopback = host === '::1' || host.startsWith('[::1]');
+        if (parsedUrl.protocol !== 'https:' || isPrivateHost || isPrivateIpv4 || isIpv6Loopback) {
           return createResponse({ error: 'Invalid upstream configuration' }, 500, {}, env, origin);
         }
 
@@ -199,6 +224,7 @@ export async function onRequest({ request, env }: any) {
             messages,
             stream: isStream,
           }),
+          signal: AbortSignal.timeout(30000),
         });
 
         if (!isStream) {
@@ -206,7 +232,21 @@ export async function onRequest({ request, env }: any) {
           return createResponse(data, response.status, {}, env, origin);
         }
 
+        // Guard: only stream if the upstream actually returned an SSE payload
+        const upstreamContentType = response.headers.get('content-type') || '';
+        if (!response.ok || !upstreamContentType.includes('text/event-stream')) {
+          const fallback = await response.text().catch(() => '');
+          return createResponse(
+            { error: 'Upstream service returned an unexpected response' },
+            response.status >= 400 && response.status < 600 ? response.status : 502,
+            {},
+            env,
+            origin,
+          );
+        }
+
         return new Response(response.body, {
+          status: response.status,
           headers: {
             'Content-Type': 'text/event-stream; charset=utf-8',
             'Cache-Control': 'no-cache',
@@ -223,9 +263,7 @@ export async function onRequest({ request, env }: any) {
         return createResponse({ error: 'Invalid model' }, 400, {}, env, origin);
       }
 
-      // @ts-ignore-next-line
       const isStream = stream ?? true;
-      // @ts-ignore-next-line
       const aiResponse = await AI.chatCompletions({
         ...extraParams,
         model: requestedModel,
@@ -237,7 +275,7 @@ export async function onRequest({ request, env }: any) {
         return createResponse(aiResponse, 200, {}, env, origin);
       }
 
-      return new Response(aiResponse, {
+      return new Response(aiResponse as ReadableStream<Uint8Array>, {
         headers: {
           'Content-Type': 'text/event-stream; charset=utf-8',
           'Cache-Control': 'no-cache',
