@@ -97,7 +97,8 @@ function fixReactImports(code: string): string {
 }
 
 export default function Home() {
-  const DEFAULT_PROMPT = "Build a personal homepage"
+  const DEFAULT_PROMPT = "Build a personal homepage";
+  const MAX_PROMPT_LENGTH = 4000; // Client-side guard; also enforced by the API
 
   let [status, setStatus] = useState<
     "initial" | "creating" | "created" | "updating" | "updated"
@@ -128,6 +129,14 @@ export default function Home() {
     e.preventDefault();
 
     if (!prompt.trim()) return;
+
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      setErrorMessage(
+        `Prompt too long (${prompt.length} > ${MAX_PROMPT_LENGTH} characters).`,
+      );
+      setStatus("initial");
+      return;
+    }
 
     if (status !== "initial") {
       scrollTo({ delay: 0.5 });
@@ -323,6 +332,7 @@ export default function Home() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 disabled={loading}
+                maxLength={MAX_PROMPT_LENGTH}
                 name="prompt"
                 className="w-full px-4 py-3 text-sm text-white placeholder-neutral-600 bg-neutral-900/50 border border-neutral-700/40 resize-none rounded-xl focus:outline-none focus:ring-1 focus:ring-neutral-600/50 focus:border-neutral-600/50 disabled:opacity-50"
                 placeholder="Describe the app you want to build..."

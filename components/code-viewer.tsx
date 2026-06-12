@@ -15,19 +15,12 @@ import JSZip from "jszip";
 import { useEffect, useRef } from "react";
 import "./code-viewer.css";
 
-// Auto-run component: automatically trigger run when generation is complete
+// Require explicit user click: never auto-run generated code (security hardening).
+// Previously this component called runSandpack() on generation completion; disabled
+// to prevent automatic execution of LLM-produced code, which could contain
+// credential-stealing forms or cross-origin requests.
 function AutoRunner({ isGenerating }: { isGenerating: boolean }) {
-  const { sandpack } = useSandpack();
-  const prevIsGenerating = useRef(isGenerating);
-
-  useEffect(() => {
-    // Auto-run when generation changes from generating to completed
-    if (prevIsGenerating.current && !isGenerating) {
-      sandpack.runSandpack();
-    }
-    prevIsGenerating.current = isGenerating;
-  }, [isGenerating, sandpack]);
-
+  void isGenerating;
   return null;
 }
 
@@ -326,8 +319,9 @@ export default function CodeViewer({
         style={{ height: "100%", display: "flex", flexDirection: "column", flex: 1 }}
         options={{
           ...sharedOptions,
-          // Disable auto-run during generation to avoid incomplete code errors
-          autorun: !isGenerating,
+          // Security: never auto-run generated code. User must explicitly click
+          // the Sandpack "Refresh" button in the preview to execute it.
+          autorun: false,
         }}
         {...sharedProps}
       >
