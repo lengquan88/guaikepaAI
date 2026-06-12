@@ -1,6 +1,7 @@
 "use client";
 
 import CodeViewer from "@/components/code-viewer";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useScrollTo } from "@/hooks/use-scroll-to";
 import { CheckIcon } from "@heroicons/react/16/solid";
 import { ChevronDownIcon, SparklesIcon } from "@heroicons/react/20/solid";
@@ -117,19 +118,29 @@ export default function Home() {
     { label: "deepseek-v4", value: "deepseek-v4" },
   ];
   let [model, setModel] = useState(models[0].value);
-  let [generatedCode, setGeneratedCode] = useState("");
+  let [generatedCode, setGeneratedCode] = useLocalStorage<string>(
+    "deepseek-v4:generatedCode",
+    "",
+  );
   let [ref, scrollTo] = useScrollTo();
-  let [messages, setMessages] = useState<{ role: string; content: string }[]>(
+  let [messages, setMessages] = useLocalStorage<
+    { role: string; content: string }[]
+  >("deepseek-v4:messages", []);
+  // Accumulated user input history for multi-turn conversation
+  let [conversationHistory, setConversationHistory] = useLocalStorage<string[]>(
+    "deepseek-v4:conversationHistory",
     [],
   );
-  // Accumulated user input history for multi-turn conversation
-  let [conversationHistory, setConversationHistory] = useState<string[]>([]);
   // Resolve SSR hydration flickering issue
   let [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
+    // If there's persisted code, show the code viewer as "created"
+    if (generatedCode) {
+      setStatus("created");
+    }
+  }, [generatedCode]);
 
   let loading = status === "creating" || status === "updating";
 

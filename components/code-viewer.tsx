@@ -12,6 +12,7 @@ import { ArrowDownTrayIcon, CheckIcon, CloudArrowUpIcon, ClipboardDocumentIcon }
 import dedent from "dedent";
 import JSZip from "jszip";
 import { useState } from "react";
+import { toast } from "sonner";
 import "./code-viewer.css";
 
 // Download toolbar component
@@ -23,6 +24,7 @@ function DownloadToolbar({
   isGenerating: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const canDownload = !isGenerating && code.trim().length > 0;
 
   const handleCopy = async () => {
@@ -30,14 +32,20 @@ function DownloadToolbar({
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
+      toast.success("Code copied to clipboard");
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Silently ignore clipboard errors (e.g. in unsupported contexts)
+      toast.error("Failed to copy code");
     }
   };
 
   const handleDownload = async () => {
-    if (!canDownload) return;
+    if (!canDownload || downloading) return;
+
+    setDownloading(true);
+    toast.info("Preparing project download...");
+
+    try {
 
     const zip = new JSZip();
 
@@ -258,8 +266,14 @@ function DownloadToolbar({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      toast.success("Project downloaded successfully");
+    } catch {
+      toast.error("Failed to download project");
     } finally {
       URL.revokeObjectURL(url);
+    }
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -286,16 +300,16 @@ function DownloadToolbar({
         </button>
         <button
           onClick={handleDownload}
-          disabled={!canDownload}
+          disabled={!canDownload || downloading}
           className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${
-            canDownload
+            canDownload && !downloading
               ? "bg-transparent text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-500 cursor-pointer"
               : "bg-transparent text-gray-600 border border-gray-800 cursor-not-allowed"
           }`}
-          title={canDownload ? "Download project ZIP" : "Generating code..."}
+          title={downloading ? "Downloading..." : canDownload ? "Download project ZIP" : "Generating code..."}
         >
-          <ArrowDownTrayIcon className="w-3.5 h-3.5" />
-          <span>Download</span>
+          <ArrowDownTrayIcon className={`w-3.5 h-3.5 ${downloading ? "animate-pulse" : ""}`} />
+          <span>{downloading ? "Downloading" : "Download"}</span>
         </button>
         <a
           href="https://pages.edgeone.ai/document/direct-upload"
