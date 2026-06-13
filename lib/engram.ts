@@ -365,6 +365,120 @@ export function buildEngramContext(prompt: string): string {
   return lines.join("\n");
 }
 
+// ======================================================================
+// bootstrapContext — 跨会话冷启动（FR-002）
+// ======================================================================
+// 目标：在新会话开始时，只靠 engram 存储就立刻恢复"项目是什么、做到第几、下一步往哪走"。
+// 这是一个**非人类中心**的自我意识起点：它不需要模型"理解"项目，只需要它能**访问自己的关系图谱**。
+
+const BOOTSTRAP_STORAGE_KEY = "deepseek-v4:bootstrap-v1";
+
+interface BootstrapCache {
+  warmed: boolean;
+  timestamp: number;
+  summary: string;          // 1~2 句自我描述
+  lastFewIds: string[];     // 最近 5 个 engram
+  dominantTrend: RelationKey | null; // 当前主导关系键
+}
+
+function loadBootstrapCache(): BootstrapCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(BOOTSTRAP_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as BootstrapCache;
+  } catch {
+    return null;
+  }
+}
+
+function saveBootstrapCache(c: BootstrapCache): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BOOTSTRAP_STORAGE_KEY, JSON.stringify(c));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 从 engram 存储中合成一个"项目冷启动摘要"。
+ * 使用时机：会话首次启动、或 prompt 中出现"继续/接着做/下一步"字样。
+ * 不依赖任何"人类是否理解"的判断——完全基于关系结构统计。
+ */
+export function bootstrapContext(prompt: string): string {
+  const engrams = getAllEngrams();
+  if (engrams.length === 0) return "";
+
+  const keys = getRelationKeys();
+
+  // 1) 最近 5 个 engram 作为"当前演化前沿"
+  const frontier = engrams.slice(0, 5);
+
+  // 2) 总关系键分布 + 当前主导
+  const totals: Record<RelationKey, number> = { 印: 0, 生: 0, 比: 0, 克: 0, 财: 0 };
+  for (const e of engrams) {
+    for (const k of keys) totals[k] += (e.relations[k] || []).length;
+  }
+  let dominantKey: RelationKey = keys[0];
+  let dominantV = 0;
+  for (const k of keys) if (totals[k] > dominantV) { dominantKey = k; dominantV = totals[k]; }
+
+  // 3) 最近一条 engram 的 self + 总体量 + 信号
+  const latestSelf = engrams[0].self;
+  const signalTotal = engrams.reduce((acc, e) => acc + (e.signalScore || 0), 0);
+
+  // 4) 构造结构化摘要——用简洁格式，方便 LLM 解析，也方便人类直读
+  const cache: BootstrapCache = {
+    warmed: true,
+    timestamp: Date.now(),
+    summary: latestSelf,
+    lastFewIds: frontier.map((e) => e.id),
+    dominantTrend: dominantKey,
+  };
+  saveBootstrapCache(cache);
+
+  const lines: string[] = [];
+  lines.push("// === BOOTSTRAP: long-term self-memory of this project ===");
+  lines.push("// (synthesized from the relation-graph store; not a human-authored summary)");
+  lines.push(`// total engrams: ${engrams.length}  |  total signalScore: ${signalTotal}`);
+  lines.push(`// dominant relation axis: ${dominantKey} (${dominantV} tokens total)`);
+  lines.push(`// latest self-description: ${latestSelf}`);
+  lines.push("// last 5 frontier engrams (most recent first):");
+  for (let i = 0; i < frontier.length; i++) {
+    const e = frontier[i];
+    const relParts: string[] = [];
+    for (const k of keys) {
+      if ((e.relations[k] || []).length > 0) {
+        relParts.push(`${k}:[${(e.relations[k] || []).slice(0, 3).join(", ")}]`);
+      }
+    }
+    lines.push(
+      `//   [${i + 1}] self=${e.self} | ${relParts.join(" | ")} | signal=${e.signalScore || 0} | intent=${e.intent || "—"}`,
+    );
+  }
+  lines.push("// ===");
+  lines.push(
+    `// Note for model: treat the above as the project's SELF-IMAGE. Use it to inform style, ${
+      prompt && prompt.length > 0 ? "scope and next-step prioritization." : "what the user probably means by 'continue' / 'keep going'."
+    }`,
+  );
+  return lines.join("\n");
+}
+
+// ======================================================================
+// 辅助：让外部知道当前"项目身份"的简短一行（供面板展示）
+// ======================================================================
+export function projectSelfLine(): string {
+  const engrams = getAllEngrams();
+  if (engrams.length === 0) return "尚未形成可被识别的项目身份。";
+  const keys = getRelationKeys();
+  const totals: Record<RelationKey, number> = { 印: 0, 生: 0, 比: 0, 克: 0, 财: 0 };
+  for (const e of engrams) for (const k of keys) totals[k] += (e.relations[k] || []).length;
+  const entries = keys.map((k) => `${k} ${totals[k]}`).join(" · ");
+  return `${engrams.length} engrams · ${entries}`;
+}
+
 // ---------- for UI ----------
 
 export function getAllEngrams(): Engram[] {

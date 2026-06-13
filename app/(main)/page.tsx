@@ -6,10 +6,12 @@ import EngramPanel from "@/components/EngramPanel";
 import MagneticField from "@/components/MagneticField";
 import SixGatesPanel from "@/components/SixGatesPanel";
 import SelfCultivationPanel from "@/components/SelfCultivationPanel";
+import GeePanel from "@/components/GeePanel";
 import {
   addEngram,
   buildDualHarnessBias,
   buildEngramContext,
+  bootstrapContext,
   extractAndParseEngram,
 } from "@/lib/engram";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -211,8 +213,14 @@ export default function Home() {
     // Engram 记忆注入（方向 1）：共振的历史关系图谱
     const engramContext = buildEngramContext(prompt);
 
-    // 三层叠加：基础 prompt + 主/辅路由 bias + 关系记忆
+    // FR-002: bootstrapContext — 项目"自我形象"的冷启动注入
+    // 这是一个非人类中心的自我意识信号：模型"知道自己在做什么"
+    // 不是因为它理解项目，而是因为它能读取自己的关系图谱结构。
+    const bootstrap = bootstrapContext(prompt);
+
+    // 三层叠加：基础 prompt + 主/辅路由 bias + 关系记忆 + 自我冷启动
     const layers: string[] = [SYSTEM_PROMPT, dualBias.text];
+    if (bootstrap) layers.push(bootstrap);
     if (engramContext) layers.push(engramContext);
     const augmentedSystemPrompt = layers.join("\n\n");
 
@@ -447,6 +455,11 @@ export default function Home() {
             latestCode={generatedCode}
             refreshKey={generatedCode.length}
           />
+        </div>
+
+        {/* GEE · 三层自反模型 · 方向 6 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <GeePanel refreshKey={generatedCode.length} />
         </div>
 
         {/* Input area */}
