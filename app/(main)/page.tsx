@@ -4,6 +4,7 @@ import CodeViewer from "@/components/code-viewer";
 import EngramGraph from "@/components/EngramGraph";
 import EngramPanel from "@/components/EngramPanel";
 import MagneticField from "@/components/MagneticField";
+import SixGatesPanel from "@/components/SixGatesPanel";
 import {
   addEngram,
   buildDualHarnessBias,
@@ -427,6 +428,15 @@ export default function Home() {
         {/* Engram propagation graph — 跨 engram 关系图 · 方向 3 */}
         <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
           <EngramGraph refreshKey={generatedCode.length} />
+        </div>
+
+        {/* Six Gates Reading · 六论门禁 · 方向 4 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <SixGatesPanel
+            prompt={prompt}
+            latestCode={generatedCode}
+            refreshKey={generatedCode.length}
+          />
         </div>
 
         {/* Input area */}

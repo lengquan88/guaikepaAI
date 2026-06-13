@@ -35,6 +35,9 @@ export interface Engram {
   signalScore?: number;
   // 记录每种互动类型的次数，方便 UI 展示
   signals?: Partial<Record<EngagementType, number>>;
+  // 六门禁/自修正流程的产出 — 这些是 "记忆固着" 的结构化副产品。
+  // 与 signals 不同，artifacts 是定性的；与 relations 不同，artifacts 是元认知的。
+  artifacts?: Partial<Record<string, number>>;
 }
 
 // 方向 2：互动类型
@@ -665,6 +668,12 @@ export function engageEngram(
   target.signalScore = (target.signalScore || 0) + weight;
   if (!target.signals) target.signals = {};
   target.signals[type] = ((target.signals[type] || 0) + 1);
+
+  // revisit (回头看) 额外标记 artifacts，方便在 EngramGraph 中以"回头看"区分
+  if (type === "revisit") {
+    if (!target.artifacts) target.artifacts = {};
+    target.artifacts["retro"] = (target.artifacts["retro"] || 0) + 1;
+  }
 
   buildIndex(store);
   saveEngramStore(store);
