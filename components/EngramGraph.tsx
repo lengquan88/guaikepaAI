@@ -117,6 +117,7 @@ export default function EngramGraph({ refreshKey = 0 }: EngramGraphProps) {
           const isSel = selected?.id === n.id;
           const isHov = hovered === n.id;
           const totalSignal = n.signalScore;
+          const retro = n.retro;
           let isHighlighted = false;
           if (highlightedEdges.size > 0) {
             highlightedEdges.forEach((k) => {
@@ -137,6 +138,16 @@ export default function EngramGraph({ refreshKey = 0 }: EngramGraphProps) {
               onMouseLeave={() => setHovered(null)}
               style={{ cursor: "pointer", opacity }}
             >
+              {/* 回头看琥珀色辉光（retro 标记） */}
+              {retro > 0 && (
+                <circle
+                  cx={p.cx}
+                  cy={p.cy}
+                  r={r + 6 + Math.min(12, retro * 3)}
+                  fill="#f59e0b"
+                  fillOpacity={0.08 + Math.min(0.2, retro * 0.05)}
+                />
+              )}
               {/* 辉光圈（当有 signalScore 时出现） */}
               {totalSignal > 0 && (
                 <circle
@@ -173,9 +184,12 @@ export default function EngramGraph({ refreshKey = 0 }: EngramGraphProps) {
 
         {/* 选中节点的信息卡 */}
         {selected && (() => {
-          const p = toPx(selected.x, selected.y);
+          const hasRetro = selected.retro > 0;
+          const hasSignal = selected.signalScore > 0;
+          const extraLines = (hasRetro ? 1 : 0) + (hasSignal ? 1 : 0);
           const cardW = 200;
-          const cardH = 70;
+          const cardH = 54 + 14 * (2 + extraLines);
+          const p = toPx(selected.x, selected.y);
           // 确保信息卡不超出边界
           let cardX = p.cx + 12;
           if (cardX + cardW > W - 8) cardX = p.cx - cardW - 12;
@@ -210,11 +224,27 @@ export default function EngramGraph({ refreshKey = 0 }: EngramGraphProps) {
               <text x={cardX + 10} y={cardY + 34} fontSize="9.5" fill="#9ca3af">
                 dominant: {getRelationLabel(selected.dominantRelation)}
               </text>
-              <text x={cardX + 10} y={cardY + 48} fontSize="9.5" fill="#9ca3af">
-                signal score: {selected.signalScore}
-              </text>
-              <text x={cardX + 10} y={cardY + 62} fontSize="9.5" fill="#6b7280">
-                generated at {new Date(selected.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {hasSignal && (
+                <text x={cardX + 10} y={cardY + 48} fontSize="9.5" fill="#9ca3af">
+                  signal score: {selected.signalScore}
+                </text>
+              )}
+              {hasRetro && (
+                <text x={cardX + 10} y={cardY + 48 + (hasSignal ? 14 : 0)} fontSize="9.5" fill="#f59e0b">
+                  回头看 · {selected.retro}
+                </text>
+              )}
+              <text
+                x={cardX + 10}
+                y={cardY + 48 + (hasSignal ? 14 : 0) + (hasRetro ? 14 : 0)}
+                fontSize="9.5"
+                fill="#6b7280"
+              >
+                generated at{" "}
+                {new Date(selected.timestamp).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </text>
             </g>
           );

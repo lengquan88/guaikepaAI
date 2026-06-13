@@ -37,9 +37,9 @@ function DownloadToolbar({
     if (latest) {
       const res = engageEngram(latest.id, type);
       if (res.success && type === "copy") {
-        toast.success(`Code copied · engram signal = ${res.newScore}`);
+        toast.success(`修为 +1 · engram signal = ${res.newScore}`);
       } else if (res.success && type === "download") {
-        toast.success(`Project downloaded · engram signal = ${res.newScore}`);
+        toast.success(`修为 +2 · engram signal = ${res.newScore}`);
       }
     }
   };

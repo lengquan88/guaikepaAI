@@ -84,7 +84,7 @@ export default function EngramPanel({ prompt }: EngramPanelProps) {
             </span>
             <span className="text-[10px] text-neutral-600">
               {total} engram{total === 1 ? "" : "s"} stored · {resonantCount}
-              resonating with current prompt
+              resonating · signal {latest.signalScore || 0}
             </span>
           </div>
         </div>
@@ -99,33 +99,80 @@ export default function EngramPanel({ prompt }: EngramPanelProps) {
 
       {/* 关系键 → token 标签网格 */}
       <div className="space-y-1.5">
-        {relationKeys.map((k) => {
-          const tokens = latest.relations[k] || [];
-          if (!tokens.length) return null;
-          return (
-            <div key={k} className="flex items-start gap-2">
-              <span
-                className={`shrink-0 w-6 text-[10px] font-medium ${getRelationColor(k)}`}
-                title={getRelationLabel(k)}
-              >
-                {k}
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {tokens.slice(0, 6).map((t, i) => (
-                  <span
-                    key={`${k}-${i}-${t}`}
-                    className={`px-1.5 py-0.5 text-[10px] rounded bg-neutral-900 border border-neutral-800 ${getRelationColor(k)}`}
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
+        {(() => {
+          const totalTokens = relationKeys.reduce(
+            (acc, k) => acc + (latest.relations[k]?.length || 0),
+            0,
           );
-        })}
+          return relationKeys.map((k) => {
+            const tokens = latest.relations[k] || [];
+            if (!tokens.length) return null;
+            const pct = totalTokens > 0 ? (tokens.length / totalTokens) * 100 : 0;
+            return (
+              <div key={k} className="flex items-start gap-2">
+                <span
+                  className={`shrink-0 w-6 text-[10px] font-medium ${getRelationColor(k)}`}
+                  title={getRelationLabel(k)}
+                >
+                  {k}
+                </span>
+                <div className="flex flex-col min-w-0">
+                  <div className="flex flex-wrap gap-1">
+                    {tokens.slice(0, 6).map((t, i) => (
+                      <span
+                        key={`${k}-${i}-${t}`}
+                        className={`px-1.5 py-0.5 text-[10px] rounded bg-neutral-900 border border-neutral-800 ${getRelationColor(k)}`}
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="w-full h-0.5 mt-1 rounded-full bg-neutral-800/70 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-400/60"
+                      style={{ width: `${pct.toFixed(0)}%` }}
+                    />
+                  </div>
+                </div>
+                <span className="text-[9px] text-neutral-600 shrink-0 w-8 text-right tabular-nums">
+                  {pct.toFixed(0)}%
+                </span>
+              </div>
+            );
+          });
+        })()}
         {latest.intent && (
           <div className="pt-1.5 mt-1 border-t border-neutral-800/40 text-[10px] text-neutral-500 italic">
             {`"${latest.intent}"`}
+          </div>
+        )}
+        {/* signals / artifacts 摘要 */}
+        {(latest.signals || latest.artifacts) && (
+          <div className="flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-neutral-800/40 text-[10px] text-neutral-500">
+            {latest.signals && (
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(latest.signals).map(([k, v]) => (
+                  <span
+                    key={k}
+                    className="px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-400"
+                  >
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            )}
+            {latest.artifacts && (
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(latest.artifacts).map(([k, v]) => (
+                  <span
+                    key={k}
+                    className="px-1.5 py-0.5 rounded bg-amber-500/5 border border-amber-500/20 text-amber-300"
+                  >
+                    {k} · {v}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

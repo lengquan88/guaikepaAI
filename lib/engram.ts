@@ -772,6 +772,8 @@ export interface GraphNode {
   timestamp: number;
   signalScore: number;
   dominantRelation: RelationKey; // 取关系键中 token 数最多的那个
+  // 回头看次数（来自 artifacts.retro）
+  retro: number;
 }
 
 export interface GraphEdge {
@@ -866,6 +868,7 @@ export function computeEngramGraph(
       timestamp: e.timestamp,
       signalScore: e.signalScore || 0,
       dominantRelation: dominantRelationOf(e),
+      retro: (e.artifacts?.retro as unknown as number) || 0,
     };
   });
 
