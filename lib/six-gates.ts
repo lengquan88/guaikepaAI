@@ -2,7 +2,7 @@
 // 六论·门禁系统 — Six Gates of Daoist Cognition
 // ======================================================================
 //
-// 把"闭环"换成"门禁"：每一步都有门槛值 (threshold)，不满足就止步，
+// 门禁设计：每一步都有门槛值 (threshold)，不满足就止步，
 // 不强行推进——像道门禁，只有缘法具足才能通往下一境。
 //
 // 把"优化"换成"回头看" (retrospect)：系统不向前去"优化"，
@@ -552,7 +552,7 @@ export function horizonGate(threshold = 0.25): GateArtifact {
 
 // ======================================================================
 // 第六论：元认知论 (ReflectioGate)
-// 反观内省 → AI 自我评估与反馈门禁（注意：门禁，非闭环）
+// 反观内省 → AI 自我评估与反馈门禁
 // ======================================================================
 // 算法：
 //   检查上面五个门禁的一致性：
@@ -765,7 +765,7 @@ export function sixGatesRead(prompt: string, latestCode: string): SixGatesReadin
 // 通用自修正流程 — 感知偏差 → 根因定位 → 物理核验 → 状态修正 →
 // 补全缺失 → 验证通过 → 记忆固化 (七步皆为门禁)
 // ======================================================================
-// 注意：这个流程不"闭环"。每一步都是一个独立门禁，只对历史 engram 进行
+// 注意：这个流程是门禁式的。每一步都是一个独立门禁，只对历史 engram 进行
 // 审视和标注（写 artifact 进去），而不是自动改动任何代码。
 
 export type HealingStepKey =
@@ -1021,7 +1021,7 @@ function stepPersist(reading: HealingReading): HealingArtifact {
   try {
     // 这里不做任何自动持久化到 engram store 的操作——
     // 我们把结果返回给调用方，由人来决定是否"存"。
-    // 这就是门禁与闭环的本质区别：门禁不自动触发；闭环自动。
+    // 这就是门禁的本质：门禁不自动触发；是否持久化由人决定。
     const gates = reading.steps.filter((s) => s.status !== "shut").length;
     const score = gates / reading.steps.length;
     const status: GateStatus = score >= 0.3 ? "open" : score > 0 ? "lingering" : "shut";
@@ -1079,7 +1079,7 @@ export function healingReading(prompt: string, latestCode: string): HealingReadi
 // ======================================================================
 // 持久化辅助：把"回头看"的建议写入到 engram（当用户认可时手动调用）
 // ======================================================================
-// 这是"主动选择"的——不是闭环。默认不会被自动调用。
+// 这是"主动选择"的——门禁式。默认不会被自动调用。
 
 function getAllEnggrams(): Engram[] {
   return getAllEngrams();
