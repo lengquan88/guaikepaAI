@@ -7,6 +7,7 @@ import MagneticField from "@/components/MagneticField";
 import SixGatesPanel from "@/components/SixGatesPanel";
 import SelfCultivationPanel from "@/components/SelfCultivationPanel";
 import GeePanel from "@/components/GeePanel";
+import MetaIgnorancePanel from "@/components/MetaIgnorancePanel";
 import {
   addEngram,
   buildDualHarnessBias,
@@ -460,6 +461,15 @@ export default function Home() {
         {/* GEE · 三层自反模型 · 方向 6 */}
         <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
           <GeePanel refreshKey={generatedCode.length} />
+        </div>
+
+        {/* 知不知门禁 · meta-ignorance gate · 自诱导式幻觉检测 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <MetaIgnorancePanel
+            prompt={prompt}
+            latestCode={generatedCode}
+            refreshKey={generatedCode.length}
+          />
         </div>
 
         {/* Input area */}
