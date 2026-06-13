@@ -3,10 +3,16 @@
 import { useEffect, useState } from "react";
 import {
   type IntrospectionReading,
+  type LookBackResult,
   type PatternMatch,
   type SystemHealthStatus,
+  type TrendReading,
+  computeTrend,
+  getIntrospectionHistory,
+  getLookBackCount,
   introspect,
   loadLastReading,
+  lookBack,
 } from "../lib/introspection";
 
 interface Props {
@@ -286,19 +292,144 @@ function CultivationMinibar({ reading }: { reading: IntrospectionReading }) {
   );
 }
 
+// ----------------------------------------------------------------------
+// 迷你趋势图 · 用三条 SVG 折线叠加展示 risk / coherence / ego-reflectivity
+// ----------------------------------------------------------------------
+
+function MiniTrendChart({
+  riskPoints,
+  coherencePoints,
+  egoPoints,
+}: {
+  riskPoints: { t: number; value: number }[];
+  coherencePoints: { t: number; value: number }[];
+  egoPoints: { t: number; value: number }[];
+}) {
+  const w = 760;
+  const h = 110;
+  const padX = 10;
+  const padY = 10;
+
+  const makePath = (pts: { t: number; value: number }[]): string => {
+    if (pts.length === 0) return "";
+    const n = pts.length;
+    return pts
+      .map((p, i) => {
+        const x = padX + (n === 1 ? 0 : (i / (n - 1)) * (w - 2 * padX));
+        const y = h - padY - Math.max(0, Math.min(1, p.value)) * (h - 2 * padY);
+        return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+  };
+
+  const makeDots = (pts: { t: number; value: number }[], color: string): string => {
+    const n = pts.length;
+    return pts
+      .map((p, i) => {
+        const x = padX + (n === 1 ? 0 : (i / (n - 1)) * (w - 2 * padX));
+        const y = h - padY - Math.max(0, Math.min(1, p.value)) * (h - 2 * padY);
+        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.8" fill="${color}" />`;
+      })
+      .join("");
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="w-full"
+        preserveAspectRatio="none"
+        style={{ height: 110 }}
+      >
+        <line x1={padX} y1={padY} x2={w - padX} y2={padY} stroke="#27272a" strokeWidth={0.6} strokeDasharray="2 3" />
+        <line
+          x1={padX}
+          y1={(h - 2 * padY) / 2 + padY}
+          x2={w - padX}
+          y2={(h - 2 * padY) / 2 + padY}
+          stroke="#27272a"
+          strokeWidth={0.6}
+          strokeDasharray="2 3"
+        />
+        <line x1={padX} y1={h - padY} x2={w - padX} y2={h - padY} stroke="#27272a" strokeWidth={0.6} strokeDasharray="2 3" />
+
+        {/* 0.5 风险阈值线 */}
+        <line
+          x1={padX}
+          y1={h - padY - 0.5 * (h - 2 * padY)}
+          x2={w - padX}
+          y2={h - padY - 0.5 * (h - 2 * padY)}
+          stroke="#f87171"
+          strokeWidth={0.6}
+          strokeDasharray="4 3"
+          opacity="0.5"
+        />
+
+        <path d={makePath(riskPoints)} stroke="#f87171" strokeWidth={1.4} fill="none" opacity="0.9" />
+        <g dangerouslySetInnerHTML={{ __html: makeDots(riskPoints, "#f87171") }} />
+
+        <path d={makePath(coherencePoints)} stroke="#34d399" strokeWidth={1.4} fill="none" opacity="0.75" />
+        <g dangerouslySetInnerHTML={{ __html: makeDots(coherencePoints, "#34d399") }} />
+
+        <path d={makePath(egoPoints)} stroke="#a78bfa" strokeWidth={1.4} fill="none" opacity="0.75" />
+        <g dangerouslySetInnerHTML={{ __html: makeDots(egoPoints, "#a78bfa") }} />
+      </svg>
+
+      <div className="flex flex-wrap items-center gap-3 text-[10px] text-neutral-400">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-2 h-2 rounded-full bg-red-400" />
+          risk · 综合风险
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
+          coherence · 跨门禁一致性
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-2 h-2 rounded-full bg-violet-400" />
+          ego · 自我审视深度
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-4 h-0 border-t border-dashed border-red-400/60" />
+          0.5 风险阈值
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function IntrospectionPanel({ prompt, latestCode, refreshKey }: Props) {
   const [reading, setReading] = useState<IntrospectionReading | null>(null);
+  const [trend, setTrend] = useState<TrendReading | null>(null);
+  const [lookBackResult, setLookBackResult] = useState<LookBackResult | null>(null);
+  const [lookBackCount, setLookBackCount] = useState(0);
+  const [justLookedBack, setJustLookedBack] = useState(false);
 
   useEffect(() => {
-    // 冷启动：如果有缓存读取它；同时触发一次新的内省
     const cached = loadLastReading();
     if (cached) setReading(cached);
-    // 总是异步跑一次新内省
+    setTrend(computeTrend(getIntrospectionHistory()));
+    setLookBackCount(getLookBackCount());
+
     const timer = setTimeout(() => {
-      setReading(introspect(prompt, latestCode));
+      const r = introspect(prompt, latestCode);
+      setReading(r);
+      setTrend(computeTrend(getIntrospectionHistory()));
     }, 80);
     return () => clearTimeout(timer);
   }, [refreshKey, prompt, latestCode]);
+
+  const handleLookBack = () => {
+    const result = lookBack(prompt, latestCode);
+    setLookBackResult(result);
+    setLookBackCount(result.lookBackTotal);
+    // 重新读取 — 把最新生成的 introspect 读出来
+    const r = loadLastReading();
+    if (r) setReading(r);
+    setTrend(computeTrend(getIntrospectionHistory()));
+    setJustLookedBack(true);
+    const t = setTimeout(() => setJustLookedBack(false), 1500);
+    return () => clearTimeout(t);
+  };
 
   if (!reading) {
     return (
@@ -312,6 +443,60 @@ export default function IntrospectionPanel({ prompt, latestCode, refreshKey }: P
     <div className="flex flex-col gap-2.5 w-full">
       {/* 头部：综合状态 */}
       <StatusHeader reading={reading} />
+
+      {/* 操作区：回头看按钮 + 审阅计数 */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-neutral-900/40 border border-neutral-800/70">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleLookBack}
+            className={`px-3 py-1.5 rounded text-[11px] font-medium border transition-all ${
+              justLookedBack
+                ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/40"
+                : "bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+            }`}
+          >
+            ◉ 回头看 · look back
+          </button>
+          <span className="text-[10px] text-neutral-500">
+            累计审阅 {lookBackCount} 次
+          </span>
+        </div>
+        <span className="text-[10px] text-neutral-500 italic">
+          知止不殆 — 人工触发一次内省审阅并标记最新 engram 为 retro
+        </span>
+      </div>
+
+      {/* 回头看结果提示 */}
+      {lookBackResult && (
+        <div className="px-3 py-2 rounded-md bg-emerald-500/5 border border-emerald-500/20 text-[11px] text-emerald-200 leading-relaxed">
+          {lookBackResult.note}
+          {lookBackResult.reviewedEngramId && (
+            <span className="text-[10px] text-emerald-400/70 ml-2">
+              · 最新 engram 已标记 retro
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 迷你趋势图（如果有历史数据） */}
+      {trend && trend.risk.length >= 2 && (
+        <div className="px-3 py-2 rounded-md bg-neutral-900/40 border border-neutral-800/70">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-500">
+              时间序列 · trend ({trend.risk.length} 个样本)
+            </span>
+            <span className="text-[10px] text-neutral-500">
+              累计识别 {trend.patterns} 种模式
+            </span>
+          </div>
+          <MiniTrendChart
+            riskPoints={trend.risk}
+            coherencePoints={trend.coherence}
+            egoPoints={trend.egoReflectivity}
+          />
+        </div>
+      )}
 
       {/* 六论迷你条 */}
       <SixGatesMinibar reading={reading} />

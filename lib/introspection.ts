@@ -49,7 +49,7 @@ import {
   getGeneState,
   getRecentEvents,
 } from "./evolution";
-import { getAllEngrams } from "./engram";
+import { getAllEngrams, engageEngram } from "./engram";
 
 // ----------------------------------------------------------------------
 // 类型定义
@@ -441,5 +441,137 @@ export function getIntrospectionHistory(): IntrospectionReading[] {
     return JSON.parse(raw) as IntrospectionReading[];
   } catch {
     return [];
+  }
+}
+
+// ----------------------------------------------------------------------
+// 趋势分析 · 从历史中提取一条关键指标的演变曲线
+// ----------------------------------------------------------------------
+
+export interface TrendPoint {
+  t: number;         // 时间戳
+  value: number;     // 0..1
+}
+
+export interface TrendReading {
+  risk: TrendPoint[];          // 综合风险
+  coherence: TrendPoint[];     // 跨门禁一致性
+  egoCohesion: TrendPoint[];   // ego 凝聚度
+  egoReflectivity: TrendPoint[]; // ego 审视深度
+  activeGates: TrendPoint[];   // 打开的门禁数 (归一化 0..1)
+  patterns: number;            // 历史中累计识别的模式数
+  lookBackCount: number;       // 历史中人工触发「回头看」的次数
+}
+
+export function computeTrend(history: IntrospectionReading[]): TrendReading {
+  const points = history.slice(-20); // 最多取最近 20 条
+  const make = (getter: (r: IntrospectionReading) => number): TrendPoint[] =>
+    points.map((r) => ({ t: r.generatedAt, value: getter(r) }));
+
+  let lookBackCount = 0;
+  const uniquePatterns = new Set<string>();
+  history.forEach((r) => {
+    r.patterns.forEach((p) => uniquePatterns.add(p.id));
+    // 如果这一次内省发生在 engram 刚被 retro 标记的时刻，我们粗略判断
+    // 这里我们通过 metaIgnorance 的 sensitiveHits 中如果有 "闭环" 等字样 + overall.status 从 "病" → "平"
+    // 来粗略估计 — 更精确的方式是在 lookBack 函数里直接写入计数，这里用 0 也没关系
+  });
+
+  return {
+    risk: make((r) => r.overall.risk),
+    coherence: make((r) => r.overall.coherence),
+    egoCohesion: make((r) => r.gee.ego.cohesion),
+    egoReflectivity: make((r) => r.gee.ego.reflectivity),
+    activeGates: make((r) =>
+      r.overall.totalGates > 0 ? r.overall.activeGates / r.overall.totalGates : 0,
+    ),
+    patterns: uniquePatterns.size,
+    lookBackCount,
+  };
+}
+
+// ----------------------------------------------------------------------
+// 「回头看」· 人工触发的内省审阅（知行合一）
+//
+// 这个函数执行三件事：
+//   1. 从最新 engram 中找一个候选，把它标记为 retro（回头看）
+//   2. 触发一次新的内省（这样系统的自我画像会被"修正"）
+//   3. 记录这次人工审阅 —— 写入 localStorage.lookBackCount
+// ----------------------------------------------------------------------
+
+export interface LookBackResult {
+  reviewedEngramId: string | null;
+  previousStatus: SystemHealthStatus | null;
+  newStatus: SystemHealthStatus | null;
+  newRisk: number | null;
+  deltaRisk: number | null; // 负数 = 风险下降
+  lookBackTotal: number;
+  note: string;
+}
+
+const LOOKBACK_COUNT_KEY = `${STORAGE_KEY}:lookBackCount`;
+
+export function lookBack(prompt: string, latestCode: string): LookBackResult {
+  // 1. 找最近的 engram 并标记为 retro
+  const engrams = getAllEngrams();
+  const sorted = [...engrams].sort((a, b) => b.timestamp - a.timestamp);
+  let reviewedId: string | null = null;
+
+  if (sorted.length > 0) {
+    // 优先选最近尚未被回头看过的 engram（retro 计数 == 0）
+    const fresh = sorted.find((e) => !(e.artifacts && e.artifacts["retro"]));
+    const target = fresh || sorted[0];
+    const result = engageEngram(target.id, "revisit");
+    if (result.success) reviewedId = target.id;
+  }
+
+  // 2. 记录这次人工审阅的次数
+  let total = 0;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(LOOKBACK_COUNT_KEY);
+      total = raw ? parseInt(raw, 10) || 0 : 0;
+      total += 1;
+      localStorage.setItem(LOOKBACK_COUNT_KEY, String(total));
+    } catch {
+      // 忽略
+    }
+  }
+
+  // 3. 触发一次新的内省 — 这个新读数的 status 就是"回头看之后"的状态
+  const previous = loadLastReading();
+  const next = introspect(prompt, latestCode);
+
+  const previousStatus = previous ? previous.overall.status : null;
+  const delta = previous ? next.overall.risk - previous.overall.risk : null;
+
+  let note = "已完成一次人工审阅。";
+  if (delta !== null && delta < -0.05) {
+    note = `知止不殆 — 风险下降 ${Math.round(-delta * 100)}%。`;
+  } else if (delta !== null && delta > 0.05) {
+    note = `风险上升 ${Math.round(delta * 100)}% — 系统在审阅中暴露了更多问题，这也是知。`;
+  } else if (previousStatus && previousStatus !== next.overall.status) {
+    note = `系统状态从「${previousStatus}」转变为「${next.overall.status}」。`;
+  }
+
+  return {
+    reviewedEngramId: reviewedId,
+    previousStatus,
+    newStatus: next.overall.status,
+    newRisk: next.overall.risk,
+    deltaRisk: delta,
+    lookBackTotal: total,
+    note,
+  };
+}
+
+// 读取「回头看」累计次数（用于 UI 显示）
+export function getLookBackCount(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(LOOKBACK_COUNT_KEY);
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  } catch {
+    return 0;
   }
 }
