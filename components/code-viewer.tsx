@@ -1,6 +1,7 @@
 "use client";
 
 import * as shadcnComponents from "@/utils/shadcn";
+import { engageEngram, getLatestEngram } from "@/lib/engram";
 import {
   SandpackCodeEditor,
   SandpackLayout,
@@ -27,12 +28,28 @@ function DownloadToolbar({
   const [downloading, setDownloading] = useState(false);
   const canDownload = !isGenerating && code.trim().length > 0;
 
+  // === 方向 2：学习反馈 ===
+  // 给当前的 engram 打一个"被使用"的信号。
+  // 注意：getLatestEngram() 总是指向最新生成的 engram，
+  // 对于当前渲染的 code-viewer，它大概率就是这次生成对应的 engram。
+  const signalEngagement = (type: "copy" | "download") => {
+    const latest = getLatestEngram();
+    if (latest) {
+      const res = engageEngram(latest.id, type);
+      if (res.success && type === "copy") {
+        toast.success(`Code copied · engram signal = ${res.newScore}`);
+      } else if (res.success && type === "download") {
+        toast.success(`Project downloaded · engram signal = ${res.newScore}`);
+      }
+    }
+  };
+
   const handleCopy = async () => {
     if (!canDownload) return;
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      toast.success("Code copied to clipboard");
+      signalEngagement("copy");
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error("Failed to copy code");
@@ -266,7 +283,7 @@ function DownloadToolbar({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      toast.success("Project downloaded successfully");
+      signalEngagement("download");
     } catch {
       toast.error("Failed to download project");
     } finally {

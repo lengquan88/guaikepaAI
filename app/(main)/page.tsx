@@ -1,12 +1,13 @@
 "use client";
 
 import CodeViewer from "@/components/code-viewer";
+import EngramGraph from "@/components/EngramGraph";
 import EngramPanel from "@/components/EngramPanel";
 import MagneticField from "@/components/MagneticField";
 import {
   addEngram,
+  buildDualHarnessBias,
   buildEngramContext,
-  buildHarnessBias,
   extractAndParseEngram,
 } from "@/lib/engram";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -198,15 +199,18 @@ export default function Home() {
     setStatus("creating");
     setGeneratedCode("");
 
-    // Harness 语义路由（方向 3）：根据 prompt 的主导关系
-    // 选择"认知姿态"—— 一个 prompt 专有的 bias 段落
-    const harness = buildHarnessBias(prompt);
+    // === 方向 1：Harness 语义路由（双路） ===
+    // 用 prompt 的关系激活向量选出两个正交的 "认知姿态"：
+    //   primary（主）+ secondary（辅）
+    // 让 LLM 在考虑"首要语义目标"的同时，也关注一个辅语义维度——
+    // 这让生成的代码在一个方向聚焦，而在另一个方向有冗余度。
+    const dualBias = buildDualHarnessBias(prompt);
 
     // Engram 记忆注入（方向 1）：共振的历史关系图谱
     const engramContext = buildEngramContext(prompt);
 
-    // 三层叠加：基础 prompt + 路由 bias + 关系记忆
-    const layers: string[] = [SYSTEM_PROMPT, harness.text];
+    // 三层叠加：基础 prompt + 主/辅路由 bias + 关系记忆
+    const layers: string[] = [SYSTEM_PROMPT, dualBias.text];
     if (engramContext) layers.push(engramContext);
     const augmentedSystemPrompt = layers.join("\n\n");
 
@@ -419,6 +423,11 @@ export default function Home() {
 
         {/* Engram relation panel — 长期记忆关系图 */}
         <EngramPanel prompt={prompt} />
+
+        {/* Engram propagation graph — 跨 engram 关系图 · 方向 3 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <EngramGraph refreshKey={generatedCode.length} />
+        </div>
 
         {/* Input area */}
         <div className="p-4 border-t border-neutral-800/40">

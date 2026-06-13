@@ -29,7 +29,16 @@ export interface Engram {
   // 元数据
   id: string;
   timestamp: number;
+  // === 方向 2：学习反馈 ===
+  // 信号积分：每次用户互动（复制/下载）累加一个正信号
+  // 用于加权后续共振排名，让"被使用过的" engram 有更高 resonance
+  signalScore?: number;
+  // 记录每种互动类型的次数，方便 UI 展示
+  signals?: Partial<Record<EngagementType, number>>;
 }
+
+// 方向 2：互动类型
+export type EngagementType = "copy" | "download" | "view" | "revisit";
 
 // 持久化的 engram 存储：时间序列 + 索引
 export interface EngramStore {
@@ -306,7 +315,13 @@ export function findResonantEngrams(
         shared.push(k);
       }
     }
-    return { engram: e, score, sharedRelations: shared };
+    // === 方向 2：学习反馈 ===
+    // 把用户对 engram 的互动信号叠加到最终分数：
+    //   final = score × (1 + 0.12 × signalScore)
+    // 解释：每次 copy/download 让这个 engram 在未来的共振排名里 +12% 概率上浮
+    const signal = (e.signalScore || 0);
+    const boosted = score * (1 + 0.12 * signal);
+    return { engram: e, score: boosted, sharedRelations: shared };
   });
 
   return results
@@ -621,4 +636,254 @@ export function neutralHarnessText(): string {
 // 暴露路由表给 UI（让用户能看到"这次请求走了哪条路"）
 export function getHarnessRoutes(): HarnessRoute[] {
   return Object.values(HARNESS_ROUTES);
+}
+
+// ======================================================================
+// 方向 2：学习反馈 — engage() 把用户的正向交互转化为 engram 信号积分
+// ======================================================================
+//
+// 当用户复制代码、下载 ZIP、或重新渲染（revisit）时调用。
+// 信号分数是累加的整数，用于共振排名的加权。
+
+const ENGAGEMENT_WEIGHTS: Record<EngagementType, number> = {
+  copy: 3,     // 复制代码 — 最强信号
+  download: 4, // 下载项目 — 更强信号
+  view: 1,     // 查看/生成 — 弱信号
+  revisit: 2,  // 重访（被共振后重新生成）— 中等信号
+};
+
+export function engageEngram(
+  engramId: string,
+  type: EngagementType,
+): { success: boolean; newScore: number } {
+  if (typeof window === "undefined") return { success: false, newScore: 0 };
+  const store = loadEngramStore();
+  const target = store.engrams.find((e) => e.id === engramId);
+  if (!target) return { success: false, newScore: 0 };
+
+  const weight = ENGAGEMENT_WEIGHTS[type] ?? 1;
+  target.signalScore = (target.signalScore || 0) + weight;
+  if (!target.signals) target.signals = {};
+  target.signals[type] = ((target.signals[type] || 0) + 1);
+
+  buildIndex(store);
+  saveEngramStore(store);
+  return { success: true, newScore: target.signalScore };
+}
+
+// 找到最新的 engram（当前刚生成的那个）——供 UI 一键标记 engage
+export function getLatestEngram(): Engram | null {
+  const store = loadEngramStore();
+  return store.engrams[0] || null;
+}
+
+// ======================================================================
+// 方向 1：多路生成 — 同时选前 2 条主导关系，产出 primary+secondary bias
+// ======================================================================
+//
+// 替代原先的 buildHarnessBias：不只选一个最强关系，而是让 LLM
+// "同时考虑两个正交的认知姿态"，primary 权重高，secondary 权重低。
+// 当 prompt 的信号向量高度单一时，secondary 自动退化为一个小的"反向约束"
+// （如：如果 primary 是 "data-oriented"，secondary 是 "control-oriented"，
+//  LLM 会同时考虑数据与约束，产生更稳的代码）。
+
+export interface DualBias {
+  primary: HarnessRoute;
+  secondary: HarnessRoute | null;
+  text: string; // 可直接注入到 system prompt 的段落
+}
+
+// 返回按激活分数排序的前 N 个关系键及分数
+function rankedRelationKeys(prompt: string): { key: RelationKey; score: number }[] {
+  const profile = relationProfile(prompt);
+  // 用原始 score（非百分比）做排序，避免 sum 为 0 时的噪声
+  const rawScores: { key: RelationKey; score: number }[] = [];
+  const lower = prompt.toLowerCase();
+  for (const k of getRelationKeys()) {
+    const tokens = TRIGGER_TOKENS[k] || [];
+    let s = 0;
+    for (const t of tokens) {
+      if (/[\u4e00-\u9fa5]/.test(t)) {
+        if (lower.includes(t.toLowerCase())) s += 1;
+      } else {
+        const re = new RegExp(`\\b${t.toLowerCase()}\\b`, "g");
+        const m = lower.match(re);
+        if (m) s += m.length;
+      }
+    }
+    rawScores.push({ key: k, score: s });
+  }
+  return rawScores.sort((a, b) => b.score - a.score);
+}
+
+export function buildDualHarnessBias(prompt: string): DualBias {
+  const ranked = rankedRelationKeys(prompt);
+  const routes = getHarnessRoutes();
+
+  // primary：激活分最高的关系键
+  const primaryKey = ranked[0].key;
+  const primary = routes.find((r) => r.key === primaryKey) || routes[0];
+
+  // secondary：激活分第二高的关系键（必须与 primary 不同，且分数 > 0.3 × primary）
+  let secondary: HarnessRoute | null = null;
+  const primaryScore = ranked[0].score || 1;
+  for (let i = 1; i < ranked.length; i++) {
+    if (ranked[i].key !== primaryKey && ranked[i].score >= 0.3 * primaryScore) {
+      secondary = routes.find((r) => r.key === ranked[i].key) || null;
+      break;
+    }
+  }
+
+  // 组合段落：primary 为主要 cognitive bias，secondary 为 "also keep in mind"
+  const primarySection = primary.bias;
+  const secondarySection = secondary
+    ? `${secondary.bias.replace("PRIMARY", "SECONDARY")} (secondary — weighted ~60% of primary)`
+    : "";
+  const text = secondarySection
+    ? `${primarySection}\n\n${secondarySection}`
+    : primarySection;
+
+  return { primary, secondary, text };
+}
+
+// ======================================================================
+// 方向 3：跨 engram 传播图 — engram × engram 相似度矩阵 + 布局坐标
+// ======================================================================
+//
+// 思路：把每个 engram 表示为一个 5 维向量（每个关系键的 token 数），
+// 用余弦相似度计算每对 engram 的相关性。然后用一个"环形+吸引力"
+// 的近似力导向布局（不做物理模拟，按极坐标 + 相似度偏置）得到可视化坐标。
+
+export interface GraphNode {
+  id: string;
+  self: string;
+  x: number; // 归一化到 [0,1]
+  y: number;
+  radius: number;   // 点大小：与 signalScore + 关系总数正相关
+  timestamp: number;
+  signalScore: number;
+  dominantRelation: RelationKey; // 取关系键中 token 数最多的那个
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  similarity: number; // 0..1
+}
+
+export interface EngramGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[]; // 只保留相似度 >= minSimilarity 的边
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+function engramToVector(e: Engram): number[] {
+  const keys = getRelationKeys();
+  return keys.map((k) => (e.relations[k] || []).length);
+}
+
+function dominantRelationOf(e: Engram): RelationKey {
+  const keys = getRelationKeys();
+  let best: RelationKey = "比";
+  let bestCount = 0;
+  for (const k of keys) {
+    const c = (e.relations[k] || []).length;
+    if (c > bestCount) {
+      bestCount = c;
+      best = k;
+    }
+  }
+  return best;
+}
+
+export function computeEngramGraph(
+  minSimilarity = 0.35,
+  maxEdgesPerNode = 3,
+): EngramGraph {
+  const store = loadEngramStore();
+  const engrams = store.engrams;
+  if (engrams.length === 0) return { nodes: [], edges: [] };
+
+  // 计算每对 engram 的余弦相似度
+  const vectors = engrams.map(engramToVector);
+  const simMatrix: number[][] = engrams.map(() => new Array(engrams.length).fill(0));
+  for (let i = 0; i < engrams.length; i++) {
+    for (let j = i + 1; j < engrams.length; j++) {
+      const s = cosineSimilarity(vectors[i], vectors[j]);
+      simMatrix[i][j] = s;
+      simMatrix[j][i] = s;
+    }
+  }
+
+  // 节点布局：环形 + 基于"与全局平均向量的差异"做轻微径向往复
+  // 这样相似的 engram 会聚集在一起，而不像纯环形那样无结构。
+  const n = engrams.length;
+  const meanVec = new Array(5).fill(0).map((_, idx) =>
+    vectors.reduce((acc, v) => acc + v[idx], 0) / n,
+  );
+  // 每个节点的 "outlier 分数" = 与均值向量的余弦距离
+  const outlier = vectors.map((v) => 1 - cosineSimilarity(v, meanVec));
+
+  const nodes: GraphNode[] = engrams.map((e, i) => {
+    // 基础极角：按时间顺序（index）排开
+    const angle = (i / Math.max(n, 1)) * 2 * Math.PI - Math.PI / 2;
+    // 离群者稍微外推一点，近邻者稍微内收
+    const baseR = 0.42;
+    const r = baseR + outlier[i] * 0.12;
+    const x = 0.5 + r * Math.cos(angle);
+    const y = 0.5 + r * Math.sin(angle);
+    const relationTotal = Object.values(e.relations).reduce(
+      (acc, v) => acc + (Array.isArray(v) ? v.length : 0),
+      0,
+    );
+    const radius = 0.04 + Math.min(0.1, relationTotal * 0.005 + (e.signalScore || 0) * 0.008);
+    return {
+      id: e.id,
+      self: e.self,
+      x,
+      y,
+      radius,
+      timestamp: e.timestamp,
+      signalScore: e.signalScore || 0,
+      dominantRelation: dominantRelationOf(e),
+    };
+  });
+
+  // 边：对每个节点，取 top-N 相似度最高的邻居
+  const edges: GraphEdge[] = [];
+  for (let i = 0; i < n; i++) {
+    const candidates: { j: number; s: number }[] = [];
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      if (simMatrix[i][j] >= minSimilarity) {
+        candidates.push({ j, s: simMatrix[i][j] });
+      }
+    }
+    candidates.sort((a, b) => b.s - a.s);
+    const top = candidates.slice(0, maxEdgesPerNode);
+    for (const { j, s } of top) {
+      // 避免重复边：小 index 在前
+      const src = Math.min(i, j);
+      const dst = Math.max(i, j);
+      if (edges.some((e) => e.source === engrams[src].id && e.target === engrams[dst].id)) continue;
+      edges.push({
+        source: engrams[src].id,
+        target: engrams[dst].id,
+        similarity: s,
+      });
+    }
+  }
+
+  return { nodes, edges };
 }
