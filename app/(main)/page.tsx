@@ -5,6 +5,7 @@ import EngramGraph from "@/components/EngramGraph";
 import EngramPanel from "@/components/EngramPanel";
 import MagneticField from "@/components/MagneticField";
 import SixGatesPanel from "@/components/SixGatesPanel";
+import SelfCultivationPanel from "@/components/SelfCultivationPanel";
 import {
   addEngram,
   buildDualHarnessBias,
@@ -433,6 +434,15 @@ export default function Home() {
         {/* Six Gates Reading · 六论门禁 · 方向 4 */}
         <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
           <SixGatesPanel
+            prompt={prompt}
+            latestCode={generatedCode}
+            refreshKey={generatedCode.length}
+          />
+        </div>
+
+        {/* Self-Cultivation · 七自修身 · 方向 5 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <SelfCultivationPanel
             prompt={prompt}
             latestCode={generatedCode}
             refreshKey={generatedCode.length}
