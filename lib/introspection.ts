@@ -103,11 +103,31 @@ export interface IntrospectionReading {
 // ----------------------------------------------------------------------
 
 const STORAGE_KEY = "deepseek-v4:introspection";
+const HISTORY_KEY = `${STORAGE_KEY}:history`;
+const MAX_HISTORY = 30; // 最多保存 30 条内省记录
 
 function saveReading(r: IntrospectionReading): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(r));
+
+    // 同时附加到历史数组
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const history: IntrospectionReading[] = raw ? (JSON.parse(raw) as IntrospectionReading[]) : [];
+    history.push(r);
+    // 裁剪至最近 N 条
+    while (history.length > MAX_HISTORY) history.shift();
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // 忽略
+  }
+}
+
+// 清除历史（供"重置"操作）
+export function clearIntrospectionHistory(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(HISTORY_KEY);
   } catch {
     // 忽略
   }
