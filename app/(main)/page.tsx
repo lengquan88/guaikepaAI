@@ -8,6 +8,7 @@ import SixGatesPanel from "@/components/SixGatesPanel";
 import SelfCultivationPanel from "@/components/SelfCultivationPanel";
 import GeePanel from "@/components/GeePanel";
 import MetaIgnorancePanel from "@/components/MetaIgnorancePanel";
+import EvolutionPanel from "@/components/EvolutionPanel";
 import {
   addEngram,
   buildDualHarnessBias,
@@ -470,6 +471,11 @@ export default function Home() {
             latestCode={generatedCode}
             refreshKey={generatedCode.length}
           />
+        </div>
+
+        {/* 进化引擎 · gene evolution · 能力基因成熟度与变异 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <EvolutionPanel refreshKey={generatedCode.length} />
         </div>
 
         {/* Input area */}
