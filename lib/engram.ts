@@ -388,3 +388,237 @@ export function getRelationColor(k: RelationKey): string {
   };
   return map[k];
 }
+
+// 返回 16 进制颜色（用于 SVG 内联样式，Tailwind class 不能直接写在 SVG 里）
+export function getRelationHex(k: RelationKey): string {
+  const map: Record<RelationKey, string> = {
+    印: "#38bdf8", // sky-400
+    生: "#34d399", // emerald-400
+    比: "#a78bfa", // violet-400
+    克: "#fbbf24", // amber-400
+    财: "#fb7185", // rose-400
+  };
+  return map[k];
+}
+
+// ======================================================================
+// 方向 2：内磁场数据层 —— 关系强度剖面图（prompt → 5 维强度向量）
+// ======================================================================
+//
+// 思路：把"当前 prompt"看做一次"磁场激发"。
+// 每个关系键（印/生/比/克/财）都有一组触发它的语义关键词，
+// 我们计算 prompt 在每个关系键上的"激活强度"，得到一个 5 维强度向量。
+//
+// 另外，历史 engram 的时间序列也由此被可视化为"记忆流"。
+
+// 每个关系键都有一组触发 token（语义关键词，中英文混合以便于匹配）
+const TRIGGER_TOKENS: Record<RelationKey, string[]> = {
+  印: [
+    "import", "imports", "hook", "hooks", "library", "libraries",
+    "react", "usestate", "useeffect", "usememo", "component", "state",
+    "depend", "dependency", "support", "base", "foundation",
+    "引入", "导入", "依赖", "支撑", "基础", "组件", "状态",
+  ],
+  生: [
+    "render", "display", "output", "show", "animation", "animate",
+    "transition", "list", "card", "panel", "layout", "page", "hero",
+    "visual", "chart", "graph",
+    "渲染", "显示", "输出", "动画", "列表", "卡片", "页面", "可视化", "图表",
+  ],
+  比: [
+    "similar", "like", "same", "such as", "example", "for example",
+    "button", "checkbox", "input", "form", "toggle", "tab", "card",
+    "dropdown", "modal", "icon", "peer", "同类", "类似", "相似",
+  ],
+  克: [
+    "validate", "validation", "check", "limit", "max", "min",
+    "constraint", "guard", "cond", "condition", "if", "unless",
+    "disable", "required", "error", "boundary", "control",
+    "验证", "校验", "限制", "约束", "条件", "边界", "控制", "错误",
+  ],
+  财: [
+    "data", "fetch", "api", "load", "transform", "consume",
+    "dataset", "items", "entries", "array", "user input", "input",
+    "database", "json", "payload",
+    "数据", "接口", "加载", "消费", "转化", "输入", "数组",
+  ],
+};
+
+// 关系强度剖面：每个关系键 → 0..1 之间的激活分数
+export interface RelationProfile {
+  key: RelationKey;
+  score: number;      // 激活分数（原始）
+  percentage: number; // 归一化为百分比（总和 = 100）
+  triggers: string[]; // 实际命中的触发词（前 4 个）
+}
+
+function countMatches(text: string, keywords: string[]): number {
+  if (!text) return 0;
+  const lower = text.toLowerCase();
+  let count = 0;
+  for (const kw of keywords) {
+    // 避免短词误匹配（如 "if" 会在 "gift" 中被找到）
+    // 用 \b 包围，但中文没有 word boundary —— 分开处理
+    if (/[\u4e00-\u9fa5]/.test(kw)) {
+      if (lower.includes(kw.toLowerCase())) count++;
+    } else {
+      const re = new RegExp(`\\b${kw.toLowerCase()}\\b`, "g");
+      const m = lower.match(re);
+      if (m) count += m.length;
+    }
+  }
+  return count;
+}
+
+function findHits(text: string, keywords: string[]): string[] {
+  if (!text) return [];
+  const lower = text.toLowerCase();
+  const hits: string[] = [];
+  for (const kw of keywords) {
+    if (hits.includes(kw.toLowerCase())) continue;
+    if (/[\u4e00-\u9fa5]/.test(kw)) {
+      if (lower.includes(kw.toLowerCase())) hits.push(kw);
+    } else {
+      const re = new RegExp(`\\b${kw.toLowerCase()}\\b`);
+      if (re.test(lower)) hits.push(kw);
+    }
+    if (hits.length >= 4) break;
+  }
+  return hits;
+}
+
+// 计算 prompt 的关系强度剖面（方向 2 的核心数据层）
+export function relationProfile(prompt: string): RelationProfile[] {
+  const keys = getRelationKeys();
+  const rawScores = keys.map((k) => ({
+    key: k,
+    score: countMatches(prompt, TRIGGER_TOKENS[k]) + 0.1, // +0.1 防止除零
+    triggers: findHits(prompt, TRIGGER_TOKENS[k]),
+  }));
+
+  const total = rawScores.reduce((acc, s) => acc + s.score, 0);
+  return rawScores.map((s) => ({
+    ...s,
+    percentage: total > 0 ? Math.round((s.score / total) * 100) : 20,
+  }));
+}
+
+// 返回"主导关系"——激活最强的那个关系键
+export function dominantRelation(prompt: string): RelationKey {
+  const profile = relationProfile(prompt);
+  // 如果所有关系都极低（空白 prompt），默认为 "比"
+  const max = profile.reduce((a, b) => (a.score >= b.score ? a : b));
+  if (max.score < 0.5) return "比";
+  return max.key;
+}
+
+// 记忆流时间线：取最近 N 个 engram，把它们的关系分布摊平
+export interface MemoryStreamEntry {
+  index: number; // 0 = 最新
+  self: string;
+  timestamp: number;
+  distribution: Record<RelationKey, number>; // 归一化为 0..100
+}
+
+export function memoryStream(limit = 8): MemoryStreamEntry[] {
+  const all = getAllEngrams();
+  const keys = getRelationKeys();
+  const out: MemoryStreamEntry[] = [];
+  for (let i = 0; i < Math.min(limit, all.length); i++) {
+    const e = all[i];
+    const distribution = {} as Record<RelationKey, number>;
+    let sum = 0;
+    for (const k of keys) {
+      const val = (e.relations[k] || []).length;
+      distribution[k] = val;
+      sum += val;
+    }
+    // 归一化到 100%
+    if (sum > 0) {
+      for (const k of keys) {
+        distribution[k] = Math.round((distribution[k] / sum) * 100);
+      }
+    } else {
+      for (const k of keys) distribution[k] = 0;
+    }
+    out.push({
+      index: i,
+      self: e.self,
+      timestamp: e.timestamp,
+      distribution,
+    });
+  }
+  return out;
+}
+
+// ======================================================================
+// 方向 3：Harness 语义路由 —— 不同的主导关系 → 不同的 Prompt 倾向
+// ======================================================================
+//
+// 思路：不是"一个 prompt 应对一切"，而是让 LLM 以不同的"认知姿态"
+// 去处理不同的请求。当 prompt 的主导关系是"克"时，LLM 应该更关心
+// 边界和验证；当主导关系是"生"时，LLM 应该更倾向于可视化输出。
+//
+// 每个关系键有一个简短的 "cognitive bias" 段落，注入到 SYSTEM_PROMPT 中。
+// 注意：这是在 "buildEngramContext" 之外的另一层注入——两层是叠加的：
+//   SYSTEM_PROMPT + harnessBias + engramContext → LLM
+
+export interface HarnessRoute {
+  key: RelationKey;
+  label: string;       // 用于 UI 展示
+  bias: string;        // 注入到 system prompt 的一段话
+}
+
+const HARNESS_ROUTES: Record<RelationKey, HarnessRoute> = {
+  印: {
+    key: "印",
+    label: "Support-oriented — 先想依赖与基石",
+    bias:
+      "COGNITIVE BIAS: This request is primarily about FOUNDATION & DEPENDENCIES. Prioritize: (1) identify which React hooks or libraries provide the backbone, (2) keep the import surface minimal, (3) ensure state flows from foundation to display. Write fewer helper files, more focused core components.",
+  },
+  生: {
+    key: "生",
+    label: "Output-oriented — 先想渲染与可视化",
+    bias:
+      "COGNITIVE BIAS: This request is primarily about OUTPUT & RENDERING. Prioritize: (1) visual hierarchy and clear layout, (2) animations or transitions for interactivity, (3) component composition that reads naturally top-down. If the request implies charts or lists, lean into them.",
+  },
+  比: {
+    key: "比",
+    label: "Peer-oriented — 从同类结构出发",
+    bias:
+      "COGNITIVE BIAS: This request is primarily about COMPOSITION & PATTERNS. Prioritize: (1) reuse familiar UI primitives (buttons, cards, tabs, forms) compositionally, (2) keep interaction patterns consistent, (3) avoid inventing new patterns when standard ones suffice.",
+  },
+  克: {
+    key: "克",
+    label: "Control-oriented — 以约束为骨架",
+    bias:
+      "COGNITIVE BIAS: This request is primarily about CONTROL & VALIDATION. Prioritize: (1) define clear constraints (input length, required fields, numeric ranges) upfront, (2) show error/empty states explicitly, (3) disable actions when preconditions are not met, (4) treat edge cases as first-class concerns, not afterthoughts.",
+  },
+  财: {
+    key: "财",
+    label: "Data-oriented — 从数据消费出发",
+    bias:
+      "COGNITIVE BIAS: This request is primarily about DATA TRANSFORMATION. Prioritize: (1) define the shape of input data early (types, example data), (2) keep data-to-display pipeline simple and traceable, (3) think about loading and empty states as first-class rendering outputs.",
+  },
+};
+
+// 给 harness 路由添加一个 "fallback"——当所有关系都很弱时，保持中立
+const NEUTRAL_BIAS =
+  "COGNITIVE BIAS: The request is evenly balanced. Produce a pragmatic, balanced React component with reasonable defaults.";
+
+// 解析 prompt → 选择路由 → 返回注入文本
+export function buildHarnessBias(prompt: string): { route: HarnessRoute; text: string } {
+  const k = dominantRelation(prompt);
+  const route = HARNESS_ROUTES[k];
+  return { route, text: route.bias };
+}
+
+// 中性路由（当 prompt 为空或信号太弱时）
+export function neutralHarnessText(): string {
+  return NEUTRAL_BIAS;
+}
+
+// 暴露路由表给 UI（让用户能看到"这次请求走了哪条路"）
+export function getHarnessRoutes(): HarnessRoute[] {
+  return Object.values(HARNESS_ROUTES);
+}

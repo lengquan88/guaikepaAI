@@ -2,9 +2,11 @@
 
 import CodeViewer from "@/components/code-viewer";
 import EngramPanel from "@/components/EngramPanel";
+import MagneticField from "@/components/MagneticField";
 import {
   addEngram,
   buildEngramContext,
+  buildHarnessBias,
   extractAndParseEngram,
 } from "@/lib/engram";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -196,11 +198,17 @@ export default function Home() {
     setStatus("creating");
     setGeneratedCode("");
 
-    // Engram 注入：用共振的历史关系图谱增强 system prompt
+    // Harness 语义路由（方向 3）：根据 prompt 的主导关系
+    // 选择"认知姿态"—— 一个 prompt 专有的 bias 段落
+    const harness = buildHarnessBias(prompt);
+
+    // Engram 记忆注入（方向 1）：共振的历史关系图谱
     const engramContext = buildEngramContext(prompt);
-    const augmentedSystemPrompt = engramContext
-      ? `${SYSTEM_PROMPT}\n\n${engramContext}`
-      : SYSTEM_PROMPT;
+
+    // 三层叠加：基础 prompt + 路由 bias + 关系记忆
+    const layers: string[] = [SYSTEM_PROMPT, harness.text];
+    if (engramContext) layers.push(engramContext);
+    const augmentedSystemPrompt = layers.join("\n\n");
 
     const fullMessages = [
       { role: "system" as const, content: augmentedSystemPrompt },
@@ -405,6 +413,9 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* Magnetic Field — 内磁场·关系强度剖面 + 外磁场·记忆流 */}
+        <MagneticField prompt={prompt} />
 
         {/* Engram relation panel — 长期记忆关系图 */}
         <EngramPanel prompt={prompt} />
