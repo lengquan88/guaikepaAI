@@ -8,6 +8,7 @@ import SixGatesPanel from "@/components/SixGatesPanel";
 import SelfCultivationPanel from "@/components/SelfCultivationPanel";
 import GeePanel from "@/components/GeePanel";
 import MetaIgnorancePanel from "@/components/MetaIgnorancePanel";
+import IntrospectionPanel from "@/components/IntrospectionPanel";
 import EvolutionPanel from "@/components/EvolutionPanel";
 import {
   addEngram,
@@ -435,6 +436,15 @@ export default function Home() {
 
         {/* Engram relation panel — 长期记忆关系图 */}
         <EngramPanel prompt={prompt} />
+
+        {/* Introspection Dashboard · 内省仪表板 · 综合自画像 */}
+        <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
+          <IntrospectionPanel
+            prompt={prompt}
+            latestCode={generatedCode}
+            refreshKey={generatedCode.length}
+          />
+        </div>
 
         {/* Engram propagation graph — 跨 engram 关系图 · 方向 3 */}
         <div className="px-4 py-3 border-t border-neutral-800/40 bg-neutral-950/40">
