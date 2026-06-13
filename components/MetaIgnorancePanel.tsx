@@ -142,8 +142,8 @@ export default function MetaIgnorancePanel({ prompt, latestCode, refreshKey }: P
         </div>
       </div>
 
-      {/* 三指标并列 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* 四指标并列（原三指标 + 认知敏感词） */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="px-3 py-2 rounded-md bg-neutral-900/40 border border-neutral-800/70">
           <Meter
             label="关系漂移"
@@ -168,7 +168,38 @@ export default function MetaIgnorancePanel({ prompt, latestCode, refreshKey }: P
             description="最近 self 描述之间的语义重叠 + 窄化"
           />
         </div>
+        <div className="px-3 py-2 rounded-md bg-neutral-900/40 border border-neutral-800/70">
+          <Meter
+            label="认知敏感词"
+            value={reading.cognitiveSensitivity}
+            color="#f87171"
+            description="闭环 / 自动完成 / 最终形态等禁忌表达"
+          />
+        </div>
       </div>
+
+      {/* 敏感词命中详情（新增区域） */}
+      {reading.sensitiveHits.length > 0 && (
+        <div className="px-3 py-2 rounded-md bg-red-500/5 border border-red-500/20">
+          <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1.5 font-semibold">
+            敏感词命中 · sensitive terms detected
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {reading.sensitiveHits.map((h, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2 text-[10.5px] leading-snug"
+              >
+                <span className="inline-block px-1.5 py-0 rounded-sm bg-red-500/20 text-red-300 font-semibold tracking-wide">
+                  {h.term}
+                </span>
+                <span className="text-neutral-400">×{h.count}</span>
+                <span className="text-neutral-500">· {h.note}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 诊断 + 谦逊标记 */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">

@@ -24,6 +24,25 @@ import {
 
 const RELATION_KEYS: RelationKey[] = ["印", "生", "比", "克", "财"];
 
+// 认知敏感词 — 对应老子"不知知，病也"的病态表达
+// 当 engram 的 self 描述或生成代码中出现这些词时，表明系统正在
+// 用"闭环/自动/完成"等工程化术语伪装一种不真实的完备性。
+// 每个词有严重度权重（1 = 轻度提示, 3 = 直接触发谦逊标记）
+const SENSITIVE_COGNITIVE_TERMS: Array<{ term: string; weight: number; note: string }> = [
+  { term: "闭环", weight: 3, note: "暗示系统已完成自足，掩盖了门禁的开放性" },
+  { term: "closed-loop", weight: 3, note: "与「闭环」同义，应替换为门禁表达" },
+  { term: "closed loop", weight: 3, note: "与「闭环」同义，应替换为门禁表达" },
+  { term: "自动完成", weight: 2, note: "暗示无需人工参与，但系统本身即门禁式" },
+  { term: "auto-complete", weight: 2, note: "与「自动完成」同义" },
+  { term: "自动优化", weight: 2, note: "暗示可脱离人工自省持续变好" },
+  { term: "闭环优化", weight: 3, note: "双重禁忌 — 既是闭环又是自动优化" },
+  { term: "自动化", weight: 1, note: "中性但过量使用 — 当出现 3 次以上时提示" },
+  { term: "automatic", weight: 1, note: "与「自动化」同义" },
+  { term: "最终形态", weight: 2, note: "暗示演化已终止，不符合门禁式持续自省" },
+  { term: "已完成", weight: 1, note: "仅在 self 描述中自我声明完成度时提示" },
+  { term: "完全体", weight: 2, note: "暗示不存在改进空间的自满表达" },
+];
+
 export interface MetaIgnoranceReading {
   version: "mi-v1";
   generatedAt: number;
@@ -32,6 +51,10 @@ export interface MetaIgnoranceReading {
   relationEntropyDrift: number;      // 历史均值 vs. 最近关系分布的 KL 散度（归一化）
   overConfidenceUnderUncertainty: number; // 低信号分 + 高确定性 self 描述的冲突
   selfReferenceLoop: number;         // self 描述之间的循环引用程度
+  cognitiveSensitivity: number;     // 认知敏感词命中强度（0..1，>0.3 触发谦逊标记）
+
+  // 具体命中的敏感词（term 列表
+  sensitiveHits: Array<{ term: string; weight: number; note: string; count: number }>;
 
   // 综合风险评分（0..1，>0.6 为"病"）
   risk: number;
@@ -189,7 +212,7 @@ export function buildMetaIgnoranceReading(
       }
     }
     const avgOverlap = pairs === 0 ? 0 : overlapSum / pairs;
-    // 同时：如果最近 engram 的 entropy 在持续下降但信号分在上升
+    // 同时：如果最近 engram 的 entropy 在持续下降但 signalScore 在上升
     // —— 这是"用越来越窄的话语体系说越来越确定的话"的经典模式
     const recentEntropy = normalizedEntropy(relationDistribution(recent));
     const recentSignal =
@@ -199,9 +222,41 @@ export function buildMetaIgnoranceReading(
     loop = 0.6 * avgOverlap + 0.4 * (invertedEntropy * signalHype);
   }
 
-  // 综合风险：三项加权
+  // 指标 4：认知敏感词检测
+  //   当 latest 或最近的 self 描述中出现"闭环/自动完成/最终形态"等表达时，
+  //   认为系统正在用工程化术语自我描述——"不知知"。
+  //   每个词按权重累积：权重 3 直接拉高到 0.8+
+  const lastSelf =
+    all.length > 0
+      ? [...all].sort((a, b) => b.timestamp - a.timestamp)[0].self
+      : "";
+  const combinedText = (lastSelf + " " + latest).toLowerCase();
+  const sensitiveHits: MetaIgnoranceReading["sensitiveHits"] = [];
+  let cognitiveScore = 0;
+  for (const entry of SENSITIVE_COGNITIVE_TERMS) {
+    const lower = entry.term.toLowerCase();
+    let count = 0;
+    if (lower === entry.term) {
+      // 中文匹配：count occurrences
+      let idx = combinedText.indexOf(lower);
+      while (idx !== -1) {
+        count += 1;
+        idx = combinedText.indexOf(lower, idx + lower.length);
+      }
+      // 对于中文分词级别的匹配，也做一次全文计数
+      const textCount = count;
+      if (textCount > 0) {
+        sensitiveHits.push({ term: entry.term, weight: entry.weight, note: entry.note, count: textCount });
+        cognitiveScore += entry.weight * textCount;
+      }
+    }
+  }
+  // 归一化：把加权累积分数：1.0 —— 累计权重 ≥ 6（例如：2 × 闭环 + 1 × 自动完成 = 病也
+  const cognitiveSensitivity = Math.min(1, cognitiveScore / 6);
+
+  // 综合风险：四项加权
   const risk = Math.round(
-    (0.45 * drift + 0.35 * ocUU + 0.2 * loop) * 1000,
+    (0.3 * drift + 0.3 * ocUU + 0.2 * loop + 0.2 * cognitiveSensitivity) * 1000,
   ) / 1000;
 
   const status: MetaIgnoranceReading["status"] =
@@ -221,11 +276,20 @@ export function buildMetaIgnoranceReading(
     diagnosis.push(
       `循环论证风险 ${(loop * 100).toFixed(0)}% —— 最近 4 条 self 描述之间重叠度过高`,
     );
+  if (cognitiveSensitivity > 0.2 && sensitiveHits.length > 0) {
+    const terms = sensitiveHits.map((h) => `「${h.term}」×${h.count}`).join(" ");
+    diagnosis.push(
+      `认知敏感词命中 ${(cognitiveSensitivity * 100).toFixed(0)}% — ${terms}`,
+    );
+  }
   if (diagnosis.length === 0) diagnosis.push("未检测到显著的自诱导模式");
 
-  // 谦逊标记建议 —— 可以直接插入到生成结果中
+  // 谦逊标记建议 —— 除综合 risk 外，敏感词命中时单独加一条
   const humilityTokens: string[] = [];
-  if (risk >= 0.6) {
+  if (cognitiveSensitivity >= 0.5 && sensitiveHits.length > 0) {
+    const terms = sensitiveHits.map((h) => h.term).join("、");
+    humilityTokens.push(`此内容中出现认知敏感词「${terms}」——应使用"门禁式/人工审阅"的表达替代`);
+  } else if (risk >= 0.6) {
     humilityTokens.push("以下内容基于有限关系图谱的外推，非确定性结论");
     humilityTokens.push("建议对关键结论做事实核验");
     if (diagnosis.length > 0) humilityTokens.push(`诊断：${diagnosis.join("；")}`);
@@ -242,6 +306,8 @@ export function buildMetaIgnoranceReading(
     relationEntropyDrift: Math.round(drift * 1000) / 1000,
     overConfidenceUnderUncertainty: Math.round(ocUU * 1000) / 1000,
     selfReferenceLoop: Math.round(loop * 1000) / 1000,
+    cognitiveSensitivity: Math.round(cognitiveSensitivity * 1000) / 1000,
+    sensitiveHits,
     risk,
     status,
     diagnosis,
