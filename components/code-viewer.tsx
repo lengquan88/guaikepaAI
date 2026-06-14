@@ -15,6 +15,7 @@ import dedent from "dedent";
 import JSZip from "jszip";
 import { useState } from "react";
 import { toast } from "sonner";
+import SelfReflectionSummaryBlock from "./SelfReflectionSummary";
 import "./code-viewer.css";
 
 // Require explicit user click: never auto-run generated code (security hardening).
@@ -360,10 +361,12 @@ export default function CodeViewer({
   code,
   showEditor = false,
   isGenerating = false,
+  prompt = "",
 }: {
   code: string;
   showEditor?: boolean;
   isGenerating?: boolean;
+  prompt?: string;
 }) {
   // Header height ~64px, calculate remaining height
   const containerStyle = { height: "calc(100vh - 64px)" };
@@ -372,6 +375,13 @@ export default function CodeViewer({
     <div style={containerStyle} className="w-full flex flex-col">
       {/* Download toolbar */}
       <DownloadToolbar code={code} isGenerating={isGenerating} />
+
+      {/* 自省摘要 · Self-Reflection Summary */}
+      <SelfReflectionSummaryBlock
+        prompt={prompt}
+        latestCode={code}
+        refreshKey={isGenerating ? Math.floor(Date.now() / 1000) : -1}
+      />
 
       <SandpackProvider
         files={{

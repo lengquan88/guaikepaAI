@@ -315,6 +315,29 @@ export function buildMetaIgnoranceReading(
   };
 }
 
+// ======================================================================
+// 谦逊表达文本 · 把自诱导信号转换成「我可能错了」的人类可读提示
+// ======================================================================
+
+export function humilityText(meta: MetaIgnoranceReading): string | null {
+  if (meta.risk >= 0.6) {
+    return "我提醒你：我在这一刻的推理里，有相当一部分是「沿着熟悉的道路外推」——不一定就是事实，尤其不一定是唯一可能的事实。请保留 30% 的不信任度。";
+  }
+  if (meta.cognitiveSensitivity >= 0.5) {
+    return "我不自觉地使用了「闭环/自动完成」这类词汇——这让我听起来比我实际更确定。请把我的确定性打一个 0.7 的折扣。";
+  }
+  if (meta.selfReferenceLoop >= 0.5) {
+    return "我刚刚连续几步都在「用自己的话解释自己的话」，这是自诱导式幻觉的经典模式。请不要把这一整段当作外部事实。";
+  }
+  if (meta.relationEntropyDrift >= 0.5) {
+    return "我最近引入的关系维度和我历史上的惯用法偏差较大；我可能正在「强行给自己编造一个合理的故事」。";
+  }
+  if (meta.risk >= 0.3) {
+    return "我此刻的自信程度高于我的证据积累。请把这视作「我倾向于这样想」，而不是「这就是答案」。";
+  }
+  return null;
+}
+
 // 辅助：把 RelationKey 映射成可展示标签（复现一下以避免循环引用）
 export function _debugRelationLabel(k: string): string {
   return getRelationLabel(k as RelationKey);

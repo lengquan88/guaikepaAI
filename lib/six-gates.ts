@@ -713,6 +713,15 @@ export function storeDoubt(text: string, coordinate: { x: number; y: number }, s
   return doubt;
 }
 
+/** 读取最近 N 条存疑记录（用于自省摘要） */
+export function getDoubtSummary(limit: number = 5): ChaosDoubt[] {
+  const sea = loadChaos();
+  if (!sea || !sea.doubts || sea.doubts.length === 0) return [];
+  return [...sea.doubts]
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, limit);
+}
+
 export function getChaos(): ChaosSea {
   return loadChaos();
 }

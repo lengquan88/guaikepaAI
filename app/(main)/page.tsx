@@ -608,7 +608,12 @@ export default function Home() {
           </div>
         ) : (
           <div className="h-full">
-            <CodeViewer code={generatedCode} showEditor isGenerating={loading} />
+            <CodeViewer
+              code={generatedCode}
+              showEditor
+              isGenerating={loading}
+              prompt={prompt}
+            />
           </div>
         )}
       </div>

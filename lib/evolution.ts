@@ -385,6 +385,49 @@ export function getRecentEvents(limit = 10): EvolutionEvent[] {
   }
 }
 
+// ======================================================================
+// 能力基因可读性报告 · 把数字翻译成一段可阅读的文字
+// ======================================================================
+
+export function capabilityGeneReport(genes: CapabilityGene[]): string {
+  if (!genes || genes.length === 0) {
+    return "我尚无能力基因记录；这是第一次对自己的能力结构建模。";
+  }
+  // 最强 / 最弱
+  const sorted = [...genes].sort((a, b) => b.maturity - a.maturity);
+  const best = sorted[0];
+  const worst = sorted[sorted.length - 1];
+  const dorm = genes.filter((g) => g.dormant).length;
+  const overall =
+    genes.reduce((s, g) => s + g.maturity, 0) / genes.length;
+  const parts: string[] = [];
+  parts.push(
+    `我整体基因成熟度 ${Math.round(overall * 100)}%——最强的是「${
+      best.label
+    }」${Math.round(best.maturity * 100)}%，最弱的是「${worst.label}」${Math.round(
+      worst.maturity * 100,
+    )}%。`,
+  );
+  if (dorm > 0) {
+    parts.push(`有 ${dorm} 个基因长期未激活，正处于休眠。`);
+  }
+  if (best.maturity - worst.maturity > 0.4) {
+    parts.push(
+      `我最强/最弱基因之间的差距超过 40%——我在「${best.label}」上过度自信，而在「${worst.label}」上还很生涩。`,
+    );
+  }
+  if (overall < 0.2) {
+    parts.push(
+      "我此刻整体还非常生涩——请把我的任何输出都当作「初步建议」，不要让它跳过你的最终判断。",
+    );
+  } else if (overall > 0.7) {
+    parts.push(
+      "我在大多数维度上都达到了「反复被激活」的水平——这意味着我倾向于给你稳定但也可能是平庸的答案。",
+    );
+  }
+  return parts.join(" ");
+}
+
 function appendEvents(newEvents: EvolutionEvent[]): void {
   if (typeof window === "undefined") return;
   try {
