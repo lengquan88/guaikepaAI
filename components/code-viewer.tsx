@@ -7,6 +7,7 @@ import {
   SandpackLayout,
   SandpackPreview,
   SandpackProvider,
+  useSandpack,
 } from "@codesandbox/sandpack-react";
 import { dracula as draculaTheme } from "@codesandbox/sandpack-themes";
 import { ArrowDownTrayIcon, CheckIcon, CloudArrowUpIcon, ClipboardDocumentIcon } from "@heroicons/react/24/outline";
@@ -15,6 +16,15 @@ import JSZip from "jszip";
 import { useState } from "react";
 import { toast } from "sonner";
 import "./code-viewer.css";
+
+// Require explicit user click: never auto-run generated code (security hardening).
+// Previously this component called runSandpack() on generation completion; disabled
+// to prevent automatic execution of LLM-produced code, which could contain
+// credential-stealing forms or cross-origin requests.
+function AutoRunner({ isGenerating }: { isGenerating: boolean }) {
+  void isGenerating;
+  return null;
+}
 
 // Download toolbar component
 function DownloadToolbar({
@@ -63,232 +73,231 @@ function DownloadToolbar({
     toast.info("Preparing project download...");
 
     try {
+      const zip = new JSZip();
 
-    const zip = new JSZip();
+      // Create project structure
+      const srcFolder = zip.folder("src");
 
-    // Create project structure
-    const srcFolder = zip.folder("src");
+      // Add main files
+      srcFolder?.file("App.tsx", code);
+      srcFolder?.file(
+        "index.tsx",
+        dedent`
+        import { StrictMode } from "react";
+        import { createRoot } from "react-dom/client";
+        import App from "./App";
+        import "./index.css";
 
-    // Add main files
-    srcFolder?.file("App.tsx", code);
-    srcFolder?.file(
-      "index.tsx",
-      dedent`
-      import { StrictMode } from "react";
-      import { createRoot } from "react-dom/client";
-      import App from "./App";
-      import "./index.css";
-
-      const root = createRoot(document.getElementById("root")!);
-      root.render(
-        <StrictMode>
-          <App />
-        </StrictMode>
+        const root = createRoot(document.getElementById("root")!);
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>
+        );
+      `
       );
-    `
-    );
 
-    srcFolder?.file(
-      "index.css",
-      dedent`
-      @tailwind base;
-      @tailwind components;
-      @tailwind utilities;
-    `
-    );
+      srcFolder?.file(
+        "index.css",
+        dedent`
+        @tailwind base;
+        @tailwind components;
+        @tailwind utilities;
+      `
+      );
 
-    // Add root directory index.html (Vite needs index.html in root directory)
-    zip.file(
-      "index.html",
-      dedent`
-      <!DOCTYPE html>
-      <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Generated App</title>
-        </head>
-        <body>
-          <div id="root"></div>
-          <script type="module" src="/src/index.tsx"></script>
-        </body>
-      </html>
-    `
-    );
+      // Add root directory index.html (Vite needs index.html in root directory)
+      zip.file(
+        "index.html",
+        dedent`
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Generated App</title>
+          </head>
+          <body>
+            <div id="root"></div>
+            <script type="module" src="/src/index.tsx"></script>
+          </body>
+        </html>
+      `
+      );
 
-    // Add package.json
-    zip.file(
-      "package.json",
-      JSON.stringify(
-        {
-          name: "generated-app",
-          version: "1.0.0",
-          private: true,
-          scripts: {
-            dev: "vite",
-            build: "tsc && vite build",
-            preview: "vite preview",
+      // Add package.json
+      zip.file(
+        "package.json",
+        JSON.stringify(
+          {
+            name: "generated-app",
+            version: "1.0.0",
+            private: true,
+            scripts: {
+              dev: "vite",
+              build: "tsc && vite build",
+              preview: "vite preview",
+            },
+            dependencies: {
+              react: "^18.2.0",
+              "react-dom": "^18.2.0",
+              "lucide-react": "latest",
+              recharts: "^2.9.0",
+            },
+            devDependencies: {
+              "@types/react": "^18.2.0",
+              "@types/react-dom": "^18.2.0",
+              "@vitejs/plugin-react": "^4.2.0",
+              autoprefixer: "^10.4.16",
+              postcss: "^8.4.32",
+              tailwindcss: "^3.4.0",
+              typescript: "^5.3.0",
+              vite: "^5.0.0",
+            },
           },
-          dependencies: {
-            react: "^18.2.0",
-            "react-dom": "^18.2.0",
-            "lucide-react": "latest",
-            recharts: "^2.9.0",
+          null,
+          2
+        )
+      );
+
+      // Add vite.config.ts
+      zip.file(
+        "vite.config.ts",
+        dedent`
+        import { defineConfig } from 'vite'
+        import react from '@vitejs/plugin-react'
+
+        export default defineConfig({
+          plugins: [react()],
+        })
+      `
+      );
+
+      // Add tsconfig.json
+      zip.file(
+        "tsconfig.json",
+        JSON.stringify(
+          {
+            compilerOptions: {
+              target: "ES2020",
+              useDefineForClassFields: true,
+              lib: ["ES2020", "DOM", "DOM.Iterable"],
+              module: "ESNext",
+              skipLibCheck: true,
+              moduleResolution: "bundler",
+              allowImportingTsExtensions: true,
+              resolveJsonModule: true,
+              isolatedModules: true,
+              noEmit: true,
+              jsx: "react-jsx",
+              strict: false,
+              noUnusedLocals: false,
+              noUnusedParameters: false,
+              noFallthroughCasesInSwitch: false,
+              noImplicitAny: false,
+            },
+            include: ["src"],
+            references: [{ path: "./tsconfig.node.json" }],
           },
-          devDependencies: {
-            "@types/react": "^18.2.0",
-            "@types/react-dom": "^18.2.0",
-            "@vitejs/plugin-react": "^4.2.0",
-            autoprefixer: "^10.4.16",
-            postcss: "^8.4.32",
-            tailwindcss: "^3.4.0",
-            typescript: "^5.3.0",
-            vite: "^5.0.0",
+          null,
+          2
+        )
+      );
+
+      // Add tsconfig.node.json
+      zip.file(
+        "tsconfig.node.json",
+        JSON.stringify(
+          {
+            compilerOptions: {
+              composite: true,
+              skipLibCheck: true,
+              module: "ESNext",
+              moduleResolution: "bundler",
+              allowSyntheticDefaultImports: true,
+            },
+            include: ["vite.config.ts"],
           },
-        },
-        null,
-        2
-      )
-    );
+          null,
+          2
+        )
+      );
 
-    // Add vite.config.ts
-    zip.file(
-      "vite.config.ts",
-      dedent`
-      import { defineConfig } from 'vite'
-      import react from '@vitejs/plugin-react'
-
-      export default defineConfig({
-        plugins: [react()],
-      })
-    `
-    );
-
-    // Add tsconfig.json
-    zip.file(
-      "tsconfig.json",
-      JSON.stringify(
-        {
-          compilerOptions: {
-            target: "ES2020",
-            useDefineForClassFields: true,
-            lib: ["ES2020", "DOM", "DOM.Iterable"],
-            module: "ESNext",
-            skipLibCheck: true,
-            moduleResolution: "bundler",
-            allowImportingTsExtensions: true,
-            resolveJsonModule: true,
-            isolatedModules: true,
-            noEmit: true,
-            jsx: "react-jsx",
-            strict: false,
-            noUnusedLocals: false,
-            noUnusedParameters: false,
-            noFallthroughCasesInSwitch: false,
-            noImplicitAny: false,
+      // Add tailwind.config.js
+      zip.file(
+        "tailwind.config.js",
+        dedent`
+        /** @type {import('tailwindcss').Config} */
+        export default {
+          content: [
+            "./index.html",
+            "./src/**/*.{js,ts,jsx,tsx}",
+          ],
+          theme: {
+            extend: {},
           },
-          include: ["src"],
-          references: [{ path: "./tsconfig.node.json" }],
-        },
-        null,
-        2
-      )
-    );
+          plugins: [],
+        }
+      `
+      );
 
-    // Add tsconfig.node.json
-    zip.file(
-      "tsconfig.node.json",
-      JSON.stringify(
-        {
-          compilerOptions: {
-            composite: true,
-            skipLibCheck: true,
-            module: "ESNext",
-            moduleResolution: "bundler",
-            allowSyntheticDefaultImports: true,
+      // Add postcss.config.js
+      zip.file(
+        "postcss.config.js",
+        dedent`
+        export default {
+          plugins: {
+            tailwindcss: {},
+            autoprefixer: {},
           },
-          include: ["vite.config.ts"],
-        },
-        null,
-        2
-      )
-    );
+        }
+      `
+      );
 
-    // Add tailwind.config.js
-    zip.file(
-      "tailwind.config.js",
-      dedent`
-      /** @type {import('tailwindcss').Config} */
-      export default {
-        content: [
-          "./index.html",
-          "./src/**/*.{js,ts,jsx,tsx}",
-        ],
-        theme: {
-          extend: {},
-        },
-        plugins: [],
+      // Add README.md
+      zip.file(
+        "README.md",
+        dedent`
+        # Generated App
+
+        This project was generated by Pages AI DeepSeek V4.
+
+        ## Getting Started
+
+        1. Install dependencies:
+           \`\`\`bash
+           npm install
+           \`\`\`
+
+        2. Start the development server:
+           \`\`\`bash
+           npm run dev
+           \`\`\`
+
+        3. Build for production:
+           \`\`\`bash
+           npm run build
+           \`\`\`
+      `
+      );
+
+      // Generate ZIP file and download
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "generated-app.zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        signalEngagement("download");
+      } catch {
+        toast.error("Failed to download project");
+      } finally {
+        URL.revokeObjectURL(url);
       }
-    `
-    );
-
-    // Add postcss.config.js
-    zip.file(
-      "postcss.config.js",
-      dedent`
-      export default {
-        plugins: {
-          tailwindcss: {},
-          autoprefixer: {},
-        },
-      }
-    `
-    );
-
-    // Add README.md
-    zip.file(
-      "README.md",
-      dedent`
-      # Generated App
-
-      This project was generated by Pages AI DeepSeek V4.
-
-      ## Getting Started
-
-      1. Install dependencies:
-         \`\`\`bash
-         npm install
-         \`\`\`
-
-      2. Start the development server:
-         \`\`\`bash
-         npm run dev
-         \`\`\`
-
-      3. Build for production:
-         \`\`\`bash
-         npm run build
-         \`\`\`
-    `
-    );
-
-    // Generate ZIP file and download
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "generated-app.zip";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      signalEngagement("download");
-    } catch {
-      toast.error("Failed to download project");
-    } finally {
-      URL.revokeObjectURL(url);
-    }
     } finally {
       setDownloading(false);
     }
@@ -378,6 +387,7 @@ export default function CodeViewer({
         }}
         {...sharedProps}
       >
+        <AutoRunner isGenerating={isGenerating} />
         {showEditor ? (
           <SandpackLayout style={{ flex: 1, height: "100%" }}>
             <SandpackCodeEditor

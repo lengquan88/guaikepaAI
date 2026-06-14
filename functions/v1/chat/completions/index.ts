@@ -29,17 +29,23 @@ const messageSchema = z
     messages: z.array(messageItemSchema),
     model: z.string().optional(),
     stream: z.boolean().optional(),
+    tools: z.any().optional(),
+    tool_choice: z.any().optional(),
+    functions: z.any().optional(),
+    function_call: z.any().optional(),
     temperature: z.number().optional(),
     top_p: z.number().optional(),
     max_tokens: z.number().optional(),
     presence_penalty: z.number().optional(),
     frequency_penalty: z.number().optional(),
     stop: z.union([z.string(), z.array(z.string())]).optional(),
+    response_format: z.any().optional(),
     seed: z.number().optional(),
     user: z.string().optional(),
     n: z.number().int().optional(),
     logit_bias: z.record(z.string(), z.number()).optional(),
     parallel_tool_calls: z.boolean().optional(),
+    stream_options: z.any().optional(),
   })
   .passthrough();
 
@@ -269,6 +275,7 @@ export async function onRequest({ request, env }: { request: Request; env: Pages
       }
 
       const isStream = stream ?? true;
+      // @ts-ignore-next-line
       const aiResponse = await AI.chatCompletions({
         ...extraParams,
         model: requestedModel,

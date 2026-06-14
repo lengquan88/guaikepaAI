@@ -6,9 +6,11 @@ export default function Layout({
   children: React.ReactNode;
 }>) {
   return (
-    <div className="flex h-screen flex-col">
-      <Header />
-      {children}
-    </div>
+    <body className="antialiased bg-brand min-h-screen">
+      <div className="flex flex-col h-screen">
+        <Header />
+        {children}
+      </div>
+    </body>
   );
 }

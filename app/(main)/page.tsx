@@ -163,6 +163,7 @@ export default function Home() {
     "deepseek-v4:conversationHistory",
     [],
   );
+  let [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Resolve SSR hydration flickering issue
   let [isMounted, setIsMounted] = useState(false);
 
@@ -378,6 +379,7 @@ export default function Home() {
     setGeneratedCode("");
     setStatus("initial");
     setPrompt(DEFAULT_PROMPT);
+    setErrorMessage(null);
     toast.success("Started a new conversation");
   }
 
@@ -408,6 +410,11 @@ export default function Home() {
                 <p className="text-sm text-neutral-500 max-w-sm">
                   Enter a prompt below and DeepSeek V4 will generate a complete, runnable React component.
                 </p>
+              </div>
+            )}
+            {errorMessage && (
+              <div className="p-4 rounded-lg bg-red-900/30 border border-red-700/50">
+                <p className="text-sm text-red-300">{errorMessage}</p>
               </div>
             )}
             {messages.map((msg, idx) => (

@@ -1,7 +1,7 @@
-import { animate, AnimationOptions } from "framer-motion";
+import { animate } from "framer-motion";
 import { useRef } from "react";
 
-type ScrollOptions = AnimationOptions & { delay?: number };
+type ScrollOptions = { type?: string; bounce?: number; duration?: number; delay?: number };
 
 export function useScrollTo() {
   const ref = useRef<HTMLDivElement>(null);
@@ -9,7 +9,7 @@ export function useScrollTo() {
   function scrollTo(options: ScrollOptions = {}) {
     if (!ref.current) return;
 
-    const defaultOptions: ScrollOptions = {
+    const defaultOptions = {
       type: "spring",
       bounce: 0,
       duration: 0.6,
@@ -18,7 +18,7 @@ export function useScrollTo() {
     animate(window.scrollY, ref.current.offsetTop, {
       ...defaultOptions,
       ...options,
-      onUpdate: (latest) => window.scrollTo({ top: latest as number }),
+      onUpdate: (latest: number) => window.scrollTo({ top: latest }),
     });
   }
 
