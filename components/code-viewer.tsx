@@ -1,6 +1,7 @@
 "use client";
 
 import * as shadcnComponents from "@/utils/shadcn";
+import { engageEngram, getLatestEngram } from "@/lib/engram";
 import {
   SandpackCodeEditor,
   SandpackLayout,
@@ -9,10 +10,12 @@ import {
   useSandpack,
 } from "@codesandbox/sandpack-react";
 import { dracula as draculaTheme } from "@codesandbox/sandpack-themes";
-import { ArrowDownTrayIcon, CloudArrowUpIcon } from "@heroicons/react/24/outline";
+import { ArrowDownTrayIcon, CheckIcon, CloudArrowUpIcon, ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 import dedent from "dedent";
 import JSZip from "jszip";
-import { useEffect, useRef } from "react";
+import { useState } from "react";
+import { toast } from "sonner";
+import SelfReflectionSummaryBlock from "./SelfReflectionSummary";
 import "./code-viewer.css";
 
 // Require explicit user click: never auto-run generated code (security hardening).
@@ -32,230 +35,273 @@ function DownloadToolbar({
   code: string;
   isGenerating: boolean;
 }) {
+  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const canDownload = !isGenerating && code.trim().length > 0;
 
-  const handleDownload = async () => {
+  // === 方向 2：学习反馈 ===
+  // 给当前的 engram 打一个"被使用"的信号。
+  // 注意：getLatestEngram() 总是指向最新生成的 engram，
+  // 对于当前渲染的 code-viewer，它大概率就是这次生成对应的 engram。
+  const signalEngagement = (type: "copy" | "download") => {
+    const latest = getLatestEngram();
+    if (latest) {
+      const res = engageEngram(latest.id, type);
+      if (res.success && type === "copy") {
+        toast.success(`修为 +1 · engram signal = ${res.newScore}`);
+      } else if (res.success && type === "download") {
+        toast.success(`修为 +2 · engram signal = ${res.newScore}`);
+      }
+    }
+  };
+
+  const handleCopy = async () => {
     if (!canDownload) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      signalEngagement("copy");
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy code");
+    }
+  };
 
-    const zip = new JSZip();
+  const handleDownload = async () => {
+    if (!canDownload || downloading) return;
 
-    // Create project structure
-    const srcFolder = zip.folder("src");
+    setDownloading(true);
+    toast.info("Preparing project download...");
 
-    // Add main files
-    srcFolder?.file("App.tsx", code);
-    srcFolder?.file(
-      "index.tsx",
-      dedent`
-      import { StrictMode } from "react";
-      import { createRoot } from "react-dom/client";
-      import App from "./App";
-      import "./index.css";
+    try {
+      const zip = new JSZip();
 
-      const root = createRoot(document.getElementById("root")!);
-      root.render(
-        <StrictMode>
-          <App />
-        </StrictMode>
+      // Create project structure
+      const srcFolder = zip.folder("src");
+
+      // Add main files
+      srcFolder?.file("App.tsx", code);
+      srcFolder?.file(
+        "index.tsx",
+        dedent`
+        import { StrictMode } from "react";
+        import { createRoot } from "react-dom/client";
+        import App from "./App";
+        import "./index.css";
+
+        const root = createRoot(document.getElementById("root")!);
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>
+        );
+      `
       );
-    `
-    );
 
-    srcFolder?.file(
-      "index.css",
-      dedent`
-      @tailwind base;
-      @tailwind components;
-      @tailwind utilities;
-    `
-    );
+      srcFolder?.file(
+        "index.css",
+        dedent`
+        @tailwind base;
+        @tailwind components;
+        @tailwind utilities;
+      `
+      );
 
-    // Add root directory index.html (Vite needs index.html in root directory)
-    zip.file(
-      "index.html",
-      dedent`
-      <!DOCTYPE html>
-      <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Generated App</title>
-        </head>
-        <body>
-          <div id="root"></div>
-          <script type="module" src="/src/index.tsx"></script>
-        </body>
-      </html>
-    `
-    );
+      // Add root directory index.html (Vite needs index.html in root directory)
+      zip.file(
+        "index.html",
+        dedent`
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Generated App</title>
+          </head>
+          <body>
+            <div id="root"></div>
+            <script type="module" src="/src/index.tsx"></script>
+          </body>
+        </html>
+      `
+      );
 
-    // Add package.json
-    zip.file(
-      "package.json",
-      JSON.stringify(
-        {
-          name: "generated-app",
-          version: "1.0.0",
-          private: true,
-          scripts: {
-            dev: "vite",
-            build: "tsc && vite build",
-            preview: "vite preview",
+      // Add package.json
+      zip.file(
+        "package.json",
+        JSON.stringify(
+          {
+            name: "generated-app",
+            version: "1.0.0",
+            private: true,
+            scripts: {
+              dev: "vite",
+              build: "tsc && vite build",
+              preview: "vite preview",
+            },
+            dependencies: {
+              react: "^18.2.0",
+              "react-dom": "^18.2.0",
+              "lucide-react": "latest",
+              recharts: "^2.9.0",
+            },
+            devDependencies: {
+              "@types/react": "^18.2.0",
+              "@types/react-dom": "^18.2.0",
+              "@vitejs/plugin-react": "^4.2.0",
+              autoprefixer: "^10.4.16",
+              postcss: "^8.4.32",
+              tailwindcss: "^3.4.0",
+              typescript: "^5.3.0",
+              vite: "^5.0.0",
+            },
           },
-          dependencies: {
-            react: "^18.2.0",
-            "react-dom": "^18.2.0",
-            "lucide-react": "latest",
-            recharts: "^2.9.0",
+          null,
+          2
+        )
+      );
+
+      // Add vite.config.ts
+      zip.file(
+        "vite.config.ts",
+        dedent`
+        import { defineConfig } from 'vite'
+        import react from '@vitejs/plugin-react'
+
+        export default defineConfig({
+          plugins: [react()],
+        })
+      `
+      );
+
+      // Add tsconfig.json
+      zip.file(
+        "tsconfig.json",
+        JSON.stringify(
+          {
+            compilerOptions: {
+              target: "ES2020",
+              useDefineForClassFields: true,
+              lib: ["ES2020", "DOM", "DOM.Iterable"],
+              module: "ESNext",
+              skipLibCheck: true,
+              moduleResolution: "bundler",
+              allowImportingTsExtensions: true,
+              resolveJsonModule: true,
+              isolatedModules: true,
+              noEmit: true,
+              jsx: "react-jsx",
+              strict: false,
+              noUnusedLocals: false,
+              noUnusedParameters: false,
+              noFallthroughCasesInSwitch: false,
+              noImplicitAny: false,
+            },
+            include: ["src"],
+            references: [{ path: "./tsconfig.node.json" }],
           },
-          devDependencies: {
-            "@types/react": "^18.2.0",
-            "@types/react-dom": "^18.2.0",
-            "@vitejs/plugin-react": "^4.2.0",
-            autoprefixer: "^10.4.16",
-            postcss: "^8.4.32",
-            tailwindcss: "^3.4.0",
-            typescript: "^5.3.0",
-            vite: "^5.0.0",
+          null,
+          2
+        )
+      );
+
+      // Add tsconfig.node.json
+      zip.file(
+        "tsconfig.node.json",
+        JSON.stringify(
+          {
+            compilerOptions: {
+              composite: true,
+              skipLibCheck: true,
+              module: "ESNext",
+              moduleResolution: "bundler",
+              allowSyntheticDefaultImports: true,
+            },
+            include: ["vite.config.ts"],
           },
-        },
-        null,
-        2
-      )
-    );
+          null,
+          2
+        )
+      );
 
-    // Add vite.config.ts
-    zip.file(
-      "vite.config.ts",
-      dedent`
-      import { defineConfig } from 'vite'
-      import react from '@vitejs/plugin-react'
-
-      export default defineConfig({
-        plugins: [react()],
-      })
-    `
-    );
-
-    // Add tsconfig.json
-    zip.file(
-      "tsconfig.json",
-      JSON.stringify(
-        {
-          compilerOptions: {
-            target: "ES2020",
-            useDefineForClassFields: true,
-            lib: ["ES2020", "DOM", "DOM.Iterable"],
-            module: "ESNext",
-            skipLibCheck: true,
-            moduleResolution: "bundler",
-            allowImportingTsExtensions: true,
-            resolveJsonModule: true,
-            isolatedModules: true,
-            noEmit: true,
-            jsx: "react-jsx",
-            strict: false,
-            noUnusedLocals: false,
-            noUnusedParameters: false,
-            noFallthroughCasesInSwitch: false,
-            noImplicitAny: false,
+      // Add tailwind.config.js
+      zip.file(
+        "tailwind.config.js",
+        dedent`
+        /** @type {import('tailwindcss').Config} */
+        export default {
+          content: [
+            "./index.html",
+            "./src/**/*.{js,ts,jsx,tsx}",
+          ],
+          theme: {
+            extend: {},
           },
-          include: ["src"],
-          references: [{ path: "./tsconfig.node.json" }],
-        },
-        null,
-        2
-      )
-    );
+          plugins: [],
+        }
+      `
+      );
 
-    // Add tsconfig.node.json
-    zip.file(
-      "tsconfig.node.json",
-      JSON.stringify(
-        {
-          compilerOptions: {
-            composite: true,
-            skipLibCheck: true,
-            module: "ESNext",
-            moduleResolution: "bundler",
-            allowSyntheticDefaultImports: true,
+      // Add postcss.config.js
+      zip.file(
+        "postcss.config.js",
+        dedent`
+        export default {
+          plugins: {
+            tailwindcss: {},
+            autoprefixer: {},
           },
-          include: ["vite.config.ts"],
-        },
-        null,
-        2
-      )
-    );
+        }
+      `
+      );
 
-    // Add tailwind.config.js
-    zip.file(
-      "tailwind.config.js",
-      dedent`
-      /** @type {import('tailwindcss').Config} */
-      export default {
-        content: [
-          "./index.html",
-          "./src/**/*.{js,ts,jsx,tsx}",
-        ],
-        theme: {
-          extend: {},
-        },
-        plugins: [],
+      // Add README.md
+      zip.file(
+        "README.md",
+        dedent`
+        # Generated App
+
+        This project was generated by Pages AI DeepSeek V4.
+
+        ## Getting Started
+
+        1. Install dependencies:
+           \`\`\`bash
+           npm install
+           \`\`\`
+
+        2. Start the development server:
+           \`\`\`bash
+           npm run dev
+           \`\`\`
+
+        3. Build for production:
+           \`\`\`bash
+           npm run build
+           \`\`\`
+      `
+      );
+
+      // Generate ZIP file and download
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "generated-app.zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        signalEngagement("download");
+      } catch {
+        toast.error("Failed to download project");
+      } finally {
+        URL.revokeObjectURL(url);
       }
-    `
-    );
-
-    // Add postcss.config.js
-    zip.file(
-      "postcss.config.js",
-      dedent`
-      export default {
-        plugins: {
-          tailwindcss: {},
-          autoprefixer: {},
-        },
-      }
-    `
-    );
-
-    // Add README.md
-    zip.file(
-      "README.md",
-      dedent`
-      # Generated App
-
-      This project was generated by Pages AI DeepSeek V4.
-
-      ## Getting Started
-
-      1. Install dependencies:
-         \`\`\`bash
-         npm install
-         \`\`\`
-
-      2. Start the development server:
-         \`\`\`bash
-         npm run dev
-         \`\`\`
-
-      3. Build for production:
-         \`\`\`bash
-         npm run build
-         \`\`\`
-    `
-    );
-
-    // Generate ZIP file and download
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "generated-app.zip";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -263,17 +309,34 @@ function DownloadToolbar({
       <span className="text-sm text-gray-500">Preview</span>
       <div className="flex items-center gap-3">
         <button
-          onClick={handleDownload}
+          onClick={handleCopy}
           disabled={!canDownload}
           className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${
             canDownload
               ? "bg-transparent text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-500 cursor-pointer"
               : "bg-transparent text-gray-600 border border-gray-800 cursor-not-allowed"
           }`}
-          title={canDownload ? "Download project ZIP" : "Generating code..."}
+          title={copied ? "Copied!" : "Copy code to clipboard"}
         >
-          <ArrowDownTrayIcon className="w-3.5 h-3.5" />
-          <span>Download</span>
+          {copied ? (
+            <CheckIcon className="w-3.5 h-3.5 text-green-400" />
+          ) : (
+            <ClipboardDocumentIcon className="w-3.5 h-3.5" />
+          )}
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </button>
+        <button
+          onClick={handleDownload}
+          disabled={!canDownload || downloading}
+          className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${
+            canDownload && !downloading
+              ? "bg-transparent text-gray-400 border border-gray-700 hover:text-gray-200 hover:border-gray-500 cursor-pointer"
+              : "bg-transparent text-gray-600 border border-gray-800 cursor-not-allowed"
+          }`}
+          title={downloading ? "Downloading..." : canDownload ? "Download project ZIP" : "Generating code..."}
+        >
+          <ArrowDownTrayIcon className={`w-3.5 h-3.5 ${downloading ? "animate-pulse" : ""}`} />
+          <span>{downloading ? "Downloading" : "Download"}</span>
         </button>
         <a
           href="https://pages.edgeone.ai/document/direct-upload"
@@ -298,10 +361,12 @@ export default function CodeViewer({
   code,
   showEditor = false,
   isGenerating = false,
+  prompt = "",
 }: {
   code: string;
   showEditor?: boolean;
   isGenerating?: boolean;
+  prompt?: string;
 }) {
   // Header height ~64px, calculate remaining height
   const containerStyle = { height: "calc(100vh - 64px)" };
@@ -310,6 +375,13 @@ export default function CodeViewer({
     <div style={containerStyle} className="w-full flex flex-col">
       {/* Download toolbar */}
       <DownloadToolbar code={code} isGenerating={isGenerating} />
+
+      {/* 自省摘要 · Self-Reflection Summary */}
+      <SelfReflectionSummaryBlock
+        prompt={prompt}
+        latestCode={code}
+        refreshKey={isGenerating ? Math.floor(Date.now() / 1000) : -1}
+      />
 
       <SandpackProvider
         files={{
